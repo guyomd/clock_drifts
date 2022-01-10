@@ -61,7 +61,7 @@ def plot_count_matrix(count_matrix, colmap='terrain_r',
     return ax
 
 
-def plot_timing_error_histories(histories, stations, cmap='tab20', time_converter=None):
+def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None):
     plt.figure()
     cNorm = colors.Normalize(vmin=0, vmax=len(stations)-1)
     scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=plt.get_cmap(cmap))
