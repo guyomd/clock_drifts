@@ -38,7 +38,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
                                              cde.d_indx[:cde.ndel, :],
                                              dm.stations,
                                              len(dm.evtnames))
-        for s in stations:
+        for s in dm.stations:
             ax = graphs.plot_count_matrix(sem[s],
                                           colmap='RdBu_r',
                                           title=s,
@@ -59,8 +59,10 @@ def run(datafile, datatype, eventfile, vpvsratio,
     cde.write_outputs(outputdir)
 
     outputdict = {
-                  'teh': cde.histories,
+                  'drifts': cde.drifts,
                   'stations': dm.stations,
+                  'evtnames': dm.evtnames,
+                  'evtdates': dm.evtdates,
                   'm': cde.m,
                   'd': cde.d,
                   'd_indx': cde.d_indx,
@@ -89,7 +91,7 @@ if __name__ == "__main__":
             NSTAMIN_PER_EVT,
             NSTAMIN_PER_EVENTPAIR,
             OUTPUTDIR,
-            make_plots=True,
+            make_plots=False,
             reference_stations=['STA00'])
 
 
