@@ -12,8 +12,8 @@ from copy import deepcopy
 import sys
 
 # Local imports:
-from graphs import save_plot, plot_timing_error_histories
-from lib import load_pickings, iter_over_event_pairs
+from graphs import save_plot, plot_clock_drift
+from lib import _load_pickings, _iter_over_event_pairs
 
 
 MAKE_PLOTS = False
@@ -36,6 +36,8 @@ else:
 
 
 OUTPUT_PICKFILE = os.path.join(OUTPUTDIR, 'dataset.txt')
+OUTPUT_EVENTFILE = os.path.join(OUTPUTDIR, 'events.txt')
+OUTPUT_DELAYFILE = os.path.join(OUTPUTDIR, 'delays.txt')
 REFERENCE_PICKFILE = os.path.join(OUTPUTDIR, 'reference.txt')
 
 # Dataset parameters:
@@ -152,7 +154,7 @@ for i in  range(nev):
         pickings['tS'].append(ti[i]+d/vs)
         pickings['tPerr'].append(tPerr)
         pickings['tSerr'].append(tSerr)
-        pickings['timing_delay'].append(ERR[stanames[j]]['delay_s'][i])
+        pickings['timing_delay'].append(ERR[stanames[j]]['delay_s'][i])  # Clock drift
         pickings['ti'].append(ti[i])
         pickings['ti_utc'].append(ti_utc[i])
         pickings['evt2sta_dist'].append(d)
@@ -171,10 +173,37 @@ for sta in ERR.keys():
     pk.loc[ii, 'tP'] += np.array(ERR[sta]['delay_s']) + rng_tt.normal(0, tPerr, size=len(pk.loc[ii, 'tP']))
     pk.loc[ii, 'tS'] += np.array(ERR[sta]['delay_s']) + rng_tt.normal(0, tSerr, size=len(pk.loc[ii, 'tS']))
 
-# export synthetic dataset (i.e. pickings) in file:
+# EXPORT SYNTHETIC DATASET TO FILES
+# Event info:
+with open(OUTPUT_EVENTFILE, 'wt') as f:
+    f.write('id; dates')
+    for i in range(nev):
+        f.write(f'{evtnames[i]}; {ti[i]}')
+
+# Pickings:
 pk.drop(columns=['timing_delay', 'ti', 'ti_utc', 'evt2sta_dist'])
 pk.to_csv(OUTPUT_PICKFILE, sep=';', index=False)
 print(f'Synthetic dataset saved in file "{OUTPUT_PICKFILE}"')
+
+# Delays:
+with open(OUTPUT_DELAYFILE, 'wt') as fd:
+    fd.write('evt1; evt2; station; channel; dtP; dtS; dtPerr; dtSerr')
+    lines = []
+    for i1 in range(nev):
+        for i2 in range (i,nev):
+            for k in range(nsta):
+                evt1 = evtnames[i1]
+                evt2 = evtnames[i2]
+                sta = stanames[k]
+                dtp = pk.loc[ (pk['station']==sta) & (pk['event']==evt1), 'tP' ] \
+                    - pk.loc[ (pk['station']==sta) & (pk['event']==evt2), 'tP' ]
+                dts = pk.loc[(pk['station'] == sta) & (pk['event'] == evt1), 'tS'] \
+                    - pk.loc[(pk['station'] == sta) & (pk['event'] == evt2), 'tS']
+                lines.append(f'{evt1}; {evt2}; {sta}; HHZ; {dtp}; {dts}; {2*tPerr}; {2*tSerr}')
+    fd.writelines(lines)
+
+
+
 
 if MAKE_PLOTS:
     # Plot synthetic timing delays:
