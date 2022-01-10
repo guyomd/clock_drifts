@@ -33,11 +33,11 @@ def run(datafile, datatype, eventfile, vpvsratio,
     
     if make_plots:
         # Display relative timing errors:
-        print(f'>> Convert relative drifts to clock drift histories')
-        sem = lib._m_to_station_error_matrix(m,
-                                             d_indx[:ndel, :],
-                                             stations,
-                                             len(evtnames))
+        print(f'>> Make plots:')
+        sem = lib._m_to_station_error_matrix(cde.m,
+                                             cde.d_indx[:cde.ndel, :],
+                                             dm.stations,
+                                             len(dm.evtnames))
         for s in stations:
             ax = graphs.plot_count_matrix(sem[s],
                                           colmap='RdBu_r',
@@ -49,7 +49,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
                              h=ax)
 
         # Plot time histories:
-    ax = graphs.plot_clock_drift(drifts, stations)
+    ax = graphs.plot_clock_drift(drifts, dm.stations)
     graphs.save_plot(
         os.path.join(outputdir,
                      f'clock_drifts.png'),

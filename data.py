@@ -46,18 +46,20 @@ class DataManager(object):
         events = pd.read_csv(
             eventfile,
             delimiter=delim,
-            names=['id', 'dates']
+            skipinitialspace=True,
+            usecols=['id', 'dates']
         )
+        #events['dates'].astype(float)
         if (self.evtnames is None):
             print('Event names have not been initiated in this instance. '+
                   f'Will load all events and dates from file "{eventfile}".')
             # Load all event names and dates from file:
             self.evtnames = events['id'].tolist()
-            self.evtdates = np.array(events['dates'].tolist())
+            self.evtdates = events['dates'].values
         else:
             print('Note: will only load dates for events matching self.evtnames.')
             # Load only dates for events listed in evtnames:
-            self.evtdates = np.array(events.loc[events['id'].isin(self.evtnames), 'dates'].tolist())
+            self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
         return self.evtdates
 
     def list_stations(self, verbose=True):
