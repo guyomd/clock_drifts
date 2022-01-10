@@ -18,7 +18,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
     print(f'>> Is plot option activated ? {make_plots}')
 
     # Load data:
-    dm = DataManager(datafile, datatype, verbose=True)
+    dm = DataManager(datafile, datatype)
     dm.load()
     dm.list_stations()
     print(f'>> Reference stations (i.e. no drift):\n{reference_stations}')

@@ -4,7 +4,7 @@ import numpy as np
 _QUASI_ZERO = 1E-6
 
 class DataManager(object):
-    def __init__(self, filename, datatype, verbose=True):
+    def __init__(self, filename, datatype, verbose=False):
         self.filename = filename
         self.datatype = datatype
         self.verbose = verbose
@@ -52,12 +52,12 @@ class DataManager(object):
             print('Event names have not been initiated in this instance. '+
                   f'Will load all events and dates from file "{eventfile}".')
             # Load all event names and dates from file:
-            self.evtnames = events['id'].values
-            self.evtdates = events['dates'].values
+            self.evtnames = events['id'].tolist()
+            self.evtdates = np.array(events['dates'].tolist())
         else:
             print('Note: will only load dates for events matching self.evtnames.')
             # Load only dates for events listed in evtnames:
-            self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
+            self.evtdates = np.array(events.loc[events['id'].isin(self.evtnames), 'dates'].tolist())
         return self.evtdates
 
     def list_stations(self, verbose=True):

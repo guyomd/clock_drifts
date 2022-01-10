@@ -72,7 +72,7 @@ class ClockDriftEstimator(object):
             and (self.Cm is not None):
             self.drifts = _pairwise_delays_to_histories(
                 self.m,
-                self.d_indx[:ndel, :],
+                self.d_indx[:self.ndel, :],
                 self.dm.stations,
                 len(self.dm.evtnames),
                 self.dm.evtdates,
@@ -90,18 +90,18 @@ class ClockDriftEstimator(object):
         _write_residuals(outdir, self.rms, self.sqres)
 
     def run(self, vpvsratio, reference_stations, nmin_sta_per_pair):
-        print(f'>> [1/4] Build matrices for inversion')
+        print(f'\n>> [1/4] Build matrices for inversion')
         self._build_matrices_for_inversion(
             vpvsratio,
             reference_stations,
             nmin_sta_per_pair=nmin_sta_per_pair)
-        print(f'>> [2/4] Run inversion of relative drifts')
+        print(f'\n>> [2/4] Run inversion of relative drifts')
         self._solve_least_squares()
-        print(f'>> [3/4] Compute residuals')
+        print(f'\n>> [3/4] Compute residuals')
         self._compute_residuals()
         print(f'         sum of square residuals: {self.sqres}')
         print(f'         root mean square: {self.rms}')
-        print(f'>> [4/4] Convert relative delays to clock drift histories')
+        print(f'\n>> [4/4] Convert relative delays to clock drift histories')
         self._pairwise_delays_to_histories()
         return self.drifts  # Return clock drift histories as Python dict
 
@@ -204,7 +204,7 @@ def _build_matrices_for_inversion(df,
     ndel = len(d_indx)
 
     # c- Add closure relationship for every earthquake triplet at each station:
-    print(f'\n\nAppend station-wise closure relations for every earthquake triplet')
+    print(f'Append station-wise closure relations for every earthquake triplet')
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
     i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
     d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
