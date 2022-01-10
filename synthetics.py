@@ -13,7 +13,7 @@ import sys
 
 # Local imports:
 from graphs import save_plot, plot_clock_drift
-from lib import _load_pickings, _iter_over_event_pairs
+from data import _load_pickings, _iter_over_event_pairs
 
 
 MAKE_PLOTS = False

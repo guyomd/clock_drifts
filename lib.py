@@ -5,7 +5,9 @@ import itertools
 import os
 import csv
 
-from data import _iter_over_event_pairs, _count_tt_delay_pairs
+from data import (DataManager, 
+                  _iter_over_event_pairs, 
+                  _count_tt_delay_pairs)
 
 _QUASI_ZERO = 1E-6
 
