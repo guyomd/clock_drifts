@@ -176,31 +176,33 @@ for sta in ERR.keys():
 # EXPORT SYNTHETIC DATASET TO FILES
 # Event info:
 with open(OUTPUT_EVENTFILE, 'wt') as f:
-    f.write('id; dates')
+    f.write('id; dates\n')
     for i in range(nev):
-        f.write(f'{evtnames[i]}; {ti[i]}')
+        f.write(f'{evtnames[i]}; {ti[i]}\n')
+print(f'Event information saved in file "{OUTPUT_EVENTFILE}"')
 
 # Pickings:
 pk.drop(columns=['timing_delay', 'ti', 'ti_utc', 'evt2sta_dist'])
 pk.to_csv(OUTPUT_PICKFILE, sep=';', index=False)
-print(f'Synthetic dataset saved in file "{OUTPUT_PICKFILE}"')
+print(f'Synthetic pickings saved in file "{OUTPUT_PICKFILE}"')
 
 # Delays:
 with open(OUTPUT_DELAYFILE, 'wt') as fd:
-    fd.write('evt1; evt2; station; channel; dtP; dtS; dtPerr; dtSerr')
+    fd.write('evt1; evt2; station; channel; dtP; dtS; dtPerr; dtSerr\n')
     lines = []
     for i1 in range(nev):
-        for i2 in range (i,nev):
+        for i2 in range (i1+1,nev):
             for k in range(nsta):
                 evt1 = evtnames[i1]
                 evt2 = evtnames[i2]
                 sta = stanames[k]
-                dtp = pk.loc[ (pk['station']==sta) & (pk['event']==evt1), 'tP' ] \
-                    - pk.loc[ (pk['station']==sta) & (pk['event']==evt2), 'tP' ]
-                dts = pk.loc[(pk['station'] == sta) & (pk['event'] == evt1), 'tS'] \
-                    - pk.loc[(pk['station'] == sta) & (pk['event'] == evt2), 'tS']
-                lines.append(f'{evt1}; {evt2}; {sta}; HHZ; {dtp}; {dts}; {2*tPerr}; {2*tSerr}')
+                dtp = pk.loc[ (pk['station']==sta) & (pk['event']==evt1), 'tP' ].values[0] \
+                    - pk.loc[ (pk['station']==sta) & (pk['event']==evt2), 'tP' ].values[0]
+                dts = pk.loc[(pk['station'] == sta) & (pk['event'] == evt1), 'tS'].values[0] \
+                    - pk.loc[(pk['station'] == sta) & (pk['event'] == evt2), 'tS'].values[0]
+                lines.append(f'{evt1}; {evt2}; {sta}; HHZ; {dtp}; {dts}; {2*tPerr}; {2*tSerr}\n')
     fd.writelines(lines)
+print(f'Synthetic delays saved in file "{OUTPUT_DELAYFILE}"')
 
 
 

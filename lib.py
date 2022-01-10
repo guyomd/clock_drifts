@@ -7,9 +7,9 @@ import csv
 
 from data import (DataManager, 
                   _iter_over_event_pairs, 
-                  _count_tt_delay_pairs)
+                  _count_tt_delay_pairs,
+                  _QUASI_ZERO)
 
-_QUASI_ZERO = 1E-6
 
 
 class ClockDriftEstimator(object):
@@ -124,7 +124,7 @@ def _build_matrices_for_inversion(df,
                                  verbose=False,
                                  stations_wo_error=[]):
     """
-    :param df: Input DataFrame
+    :param df: Input DataFrame, as formatted by load_data() method
     :param evtnames: list of event (names) used in the inversion
     :param stations_used: list of stations used in the inversion
     :param vpvsratio: float, vp/vs ratio
@@ -145,11 +145,10 @@ def _build_matrices_for_inversion(df,
       followed by
           (i12*pol12, i23*pol23, i31*pol31) for each triplet
     """
-    print(f'Counting the number of traveltime delay pairs: ', end='')
     nm = _count_tt_delay_pairs(df,
                               evtnames,
                               nstamin_per_event_pair)
-    print(f'{nm}')
+    print(f'Number of arrival time delay pairs: {nm}')
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     idx = 0
     # a- For each event pair at each station, add a line in d and G:

@@ -6,7 +6,7 @@ from lib import ClockDriftEstimator
 
 def run(datafile, datatype, eventfile, vpvsratio,
         nstamin_per_evt, nstamin_per_eventpair,
-        outputdir, make_plots=False, stations_wo_error=[]):
+        outputdir, make_plots=False, reference_stations=[]):
 
     # Check existence of output directory:
     if not os.path.exists(outputdir):
@@ -21,22 +21,16 @@ def run(datafile, datatype, eventfile, vpvsratio,
     dm = DataManager(datafile, datatype, verbose=True)
     dm.load()
     dm.list_stations()
-    print(f'>> Reference stations (i.e. account only for picking uncertainty, no timing delay):\n{stations_wo_error}')
+    print(f'>> Reference stations (i.e. no drift):\n{reference_stations}')
 
     print(f">> Get event names and dates")
     evtnames = dm.get_event_names(nmin_sta_per_evt=nstamin_per_evt)
     evtdates = dm.load_dates_from_file(eventfile)
-    print(f'\n\nTotal number of events: {len(evtnames)} ({len(evtdates)} dates)')
+    print(f'   total number of events: {len(evtnames)} ({len(evtdates)} dates)')
 
     cde = ClockDriftEstimator(dm)
-    print(f'>> Build matrices for inversion')
-    cde._build_matrices_for_inversion(
-        vpvsratio,
-        reference_stations,
-        nmin_sta_per_pair=2)
-
-    drifts = cde.run()
-
+    drifts = cde.run(vpvsratio, reference_stations, nstamin_per_eventpair)
+    
     if make_plots:
         # Display relative timing errors:
         print(f'>> Convert relative drifts to clock drift histories')
@@ -55,11 +49,11 @@ def run(datafile, datatype, eventfile, vpvsratio,
                              h=ax)
 
         # Plot time histories:
-        ax = graphs.plot_clock_drift(drifts, stations)
-        graphs.save_plot(
-            os.path.join(outputdir,
-                         f'timing_error_histories.png'),
-                         h=ax)
+    ax = graphs.plot_clock_drift(drifts, stations)
+    graphs.save_plot(
+        os.path.join(outputdir,
+                     f'clock_drifts.png'),
+                     h=ax)
 
     # Write to file:
     cde.write_outputs(outputdir)
@@ -79,26 +73,24 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
 if __name__ == "__main__":
 
-    datafile = './pickings.txt' 
-    datatype = 'pickings' # or "delays"
-    EVENTFILE = './events.txt'
+    DATAFILE = './dataset/delays.txt' #./dataset/pickings.txt' 
+    DATATYPE = 'delays' # 'pickings' 
+    EVENTFILE = './dataset/events.txt'
     NSTAMIN_PER_EVT = 2
     NSTAMIN_PER_EVENTPAIR = 2
-    MIN_DELAY = 0.0  # in s.
-    OUTPUTDIR = './output/'
+    OUTPUTDIR = './dataset/output/'
     VPVSRATIO = 1.732
 
     output = run(
-            datafile, 
-            datatype,
-            eventfile,
+            DATAFILE, 
+            DATATYPE,
+            EVENTFILE,
             VPVSRATIO,
             NSTAMIN_PER_EVT,
             NSTAMIN_PER_EVENTPAIR,
-            MIN_DELAY,
             OUTPUTDIR,
             make_plots=True,
-            stations_wo_error=['CLAN'])
+            reference_stations=['STA00'])
 
 
 

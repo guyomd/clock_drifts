@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+_QUASI_ZERO = 1E-6
 
 class DataManager(object):
     def __init__(self, filename, datatype, verbose=True):
@@ -56,10 +57,10 @@ class DataManager(object):
         else:
             print('Note: will only load dates for events matching self.evtnames.')
             # Load only dates for events listed in evtnames:
-            self.evtdates = events[events['id'].isin(self.evtnames), 'dates'].values
+            self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
         return self.evtdates
 
-    def list_stations(self):
+    def list_stations(self, verbose=True):
         self.stations = _list_available_stations(
             self.delays,
             verbose=verbose)
@@ -236,7 +237,7 @@ def _list_available_stations(df, verbose=False):
     sta_sorted = np.sort(list_sta).tolist()
     if verbose:
         nsta = len(sta_sorted)
-        print(f'List of available stations ({nsta}):\n{sta_sorted}')
+        print(f'List of stations available ({nsta}):\n{sta_sorted}')
     return sta_sorted
 
 
@@ -297,11 +298,10 @@ def _get_event_names_in_delays(df, nstamin_per_evt=0):
         evts.append(row['evt2'])
 
     uniques = np.unique(evts)
-    counts = np.zeros_like(uniques)
-    for u in range(len(uniques)):
-        counts[u] = evts.count(uniques[u])
-
-    return uniques[counts >= nstamin_per_evt]
+    counts = list()
+    for u in uniques:
+        counts.append(evts.count(u))
+    return uniques[np.array(counts) >= nstamin_per_evt].tolist()
 
 
 def _get_event_names(df, datatype='pickings', nmin_sta_per_evt=0):
@@ -348,7 +348,7 @@ def _iter_over_event_pairs(df, evtnames, nstamin):
     """
     Loop over all event pairs and return P & S traveltime delays
     for all pairs matching (i) event names and, (ii) minimum number
-    of common stations given in input.
+    of common stations given per pair.
 
     :param df: Dataframe of P & S arrival time delays, as loaded using load_delays() or pickings2delays() functions
     :param evtnames: List of event names of interest
@@ -368,7 +368,9 @@ def _iter_over_event_pairs(df, evtnames, nstamin):
             dtsvar = []
             station = []
             for _, row in df[(df['evt1'] == name1) & (df['evt2'] == name2)].iterrows():
-                if np.all( [np.bool(row['dtP'] > 0.0), np.bool(row['dtS'] > 0.0)] ):
+                if np.all( [
+                    np.bool(np.abs(row['dtP']) > 0.0), 
+                    np.bool(np.abs(row['dtS']) > 0.0)] ):
                     # Increase the counter of common stations:
                     ns += 1
                     station.append(row['station'])
