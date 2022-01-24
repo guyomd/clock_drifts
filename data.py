@@ -83,6 +83,21 @@ class DataManager(object):
         return num_records, sta_records
 
 
+    def count_records_per_station(self):
+        records = dict()
+        for _, row in self.delays.iterrows():
+            sta = row['station']
+            if sta in records.keys():
+                for evt in [row['evt1'], row['evt2']]:
+                    if evt not in records[sta]:
+                        records[sta].append(evt)
+            else:
+                records.update({sta: [row['evt1'], row['evt2']] })
+        for sta in records.keys():
+            print(f'{sta}: {len(records[sta])}')
+        return stations
+
+
     def get_events_with_records(self, min_sta_per_evt=0):
         if self.datatype == 'pickings':
             self.evtnames = _get_event_names_in_pickings(

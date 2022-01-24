@@ -27,13 +27,16 @@ def run(datafile, datatype, eventfile, vpvsratio,
           f'   Min. number of stations per evt = {min_sta_per_evt}\n' +
           f'   Min. number of stations per pair = {min_sta_per_pair}')
 
-    print(f">> Get event names and dates")
+    print(f'>> number of records per station:')
+    dm.count_records_per_station()
+
+    print(f">> Identify events with at least {min_sta_per_evt} records")
     evtnames = dm.get_events_with_records(min_sta_per_evt=min_sta_per_evt)
     evtdates = dm.load_dates_from_file(eventfile)
     print(f'   total number of events: {len(evtnames)} ({len(evtdates)} dates)')
 
     cde = lib.ClockDriftEstimator(dm)
-    drifts = cde.run(vpvsratio, reference_stations, nstamin_per_eventpair)
+    drifts = cde.run(vpvsratio, reference_stations, min_sta_per_pair)
     
     if make_plots:
         # Display relative timing errors:
