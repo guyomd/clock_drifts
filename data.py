@@ -52,46 +52,56 @@ class DataManager(object):
         #events['dates'].astype(float)
         if (self.evtnames is None):
             print('Event names have not been initiated in this instance. '+
-                  f'Will load all events and dates from file "{eventfile}".')
+                  f'Load dates for all events in file "{eventfile}".')
             # Load all event names and dates from file:
             self.evtnames = events['id'].tolist()
             self.evtdates = events['dates'].values
         else:
-            print('Note: will only load dates for events matching self.evtnames.')
+            print(f'Load dates for {len(self.evtnames)} events')
             # Load only dates for events listed in evtnames:
             self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
         return self.evtdates
 
-    def list_stations(self, verbose=True):
+
+    def list_all_stations(self, verbose=True):
         self.stations = _list_available_stations(
             self.delays,
             verbose=verbose)
         return self.stations
 
-    def count_stations_per_pair(self, nmin_sta_per_evt=2, nmin_sta_per_pair=0):
+
+    def count_stations_per_pair(self, min_sta_per_evt=2, min_sta_per_pair=0):
         if self.stations is not None:
             num_records, sta_records = \
                 _count_stations_per_pair(
                     self.delays,
                     self.stations,
-                    nstamin_per_evt=nmin_sta_per_evt,
-                    nstamin_per_event_pair=nmin_sta_per_pair)
+                    min_sta_per_evt=min_sta_per_evt,
+                    min_sta_per_pair=min_sta_per_pair)
         else:
             raise ValueError("Stations list should be initialized first. Try self.list_stations() method.")
         return num_records, sta_records
 
-    def get_event_names(self, nmin_sta_per_evt=0):
-        self.evtnames = _get_event_names(
-            self.delays,
-            datatype=self.datatype,
-            nmin_sta_per_evt=nmin_sta_per_evt)
+
+    def get_events_with_records(self, min_sta_per_evt=0):
+        if self.datatype == 'pickings':
+            self.evtnames = _get_event_names_in_pickings(
+                    self.picks,
+                    min_sta_per_evt=min_sta_per_evt)
+        elif self.datatype == 'delays':
+            self.evtnames = _get_event_names_in_delays(
+                    self.delays,
+                    min_sta_per_evt=min_sta_per_evt)
+        else:
+            raise ValueError(f'Unrecognized data type: {iself.datatype}')
         return self.evtnames
 
-    def get_dates_from_pickings(self, nmin_sta_per_evt=0):
+
+    def get_dates_from_pickings(self, min_sta_per_evt=0):
         if self.picks is not None:
             self.evtdates = _get_dates_from_pickings(
                 self.picks,
-                nstamin_per_evt=nmin_sta_per_evt)
+                min_sta_per_evt=min_sta_per_evt)
         else:
             raise ValueError('Error. Input data was not loaded as arrival times.')
         return self.evtdates
@@ -148,6 +158,8 @@ def _load_data(filename, datatype='delays', verbose=False):
         return df
     elif datatype == 'pickings':
         p = _load_pickings(filename, verbose=verbose)
+        if verbose:
+            print('  Compoute inter-event arrival-time delays')
         df = _pickings2delays(p)
         return df, p
     else:
@@ -184,10 +196,10 @@ def _pickings2delays(df):
             indexes2 = grp.groups[name2]
 
             for j1 in indexes1:
-                sta1 = df.loc[i1, 'station']
+                sta1 = df.loc[j1, 'station']
                 if sta1 in df.loc[indexes2, 'station'].values:
                     j2 = df.loc[indexes2, 'station'].tolist().index(sta1)
-                    j2 = indexes2[i2]
+                    j2 = indexes2[j2]
                     # Check if pickings are available:
                     p_arr = [
                         np.bool(df.loc[j1, 'tP'] > 0),
@@ -208,7 +220,7 @@ def _pickings2delays(df):
                         delays['channel'].append(channel)
 
                         if np.all(p_arr):
-                            delays['dTP'].append(df.loc[j1, 'tP'] - df.loc[j2, 'tP'])
+                            delays['dtP'].append(df.loc[j1, 'tP'] - df.loc[j2, 'tP'])
                             delays['dtPerr'].append(df.loc[j1, 'tPerr'] + df.loc[j2, 'tPerr'])  # std. deviation
                             delays['dtPvar'].append( (df.loc[j1, 'tPerr'] + df.loc[j2, 'tPerr'])**2 )  # variance
                         else:
@@ -217,7 +229,7 @@ def _pickings2delays(df):
                             delays['dtPvar'].append(_QUASI_ZERO)
 
                         if np.all(s_arr):
-                            delays['dTS'].append(df.loc[j1, 'tS'] - df.loc[j2, 'tS'])
+                            delays['dtS'].append(df.loc[j1, 'tS'] - df.loc[j2, 'tS'])
                             delays['dtSerr'].append(df.loc[j1, 'tSerr'] + df.loc[j2, 'tSerr'])  # std. deviation
                             delays['dtSvar'].append((df.loc[j1, 'tSerr'] + df.loc[j2, 'tSerr']) ** 2)  # variance
                         else:
@@ -243,15 +255,15 @@ def _list_available_stations(df, verbose=False):
     return sta_sorted
 
 
-def _count_stations_per_pair(df, stations, nstamin_per_evt=2,
-                            nstamin_per_event_pair=0):
+def _count_stations_per_pair(df, stations, min_sta_per_evt=2,
+                            min_sta_per_pair=0):
     evtnames = np.unique(
         np.append(pd.unique(df['evt1']).values,
                   pd.unique(df['evt1']).values)
     )
 
     nevt = len(evtnames)
-    print(f'{len(evtnames)} events have at least {nstamin_per_evt} records')
+    print(f'{len(evtnames)} events have at least {min_sta_per_evt} records')
 
     # Initialize  matrix of station counts per event pair:
     num_records = np.zeros((nevt, nevt))
@@ -261,7 +273,7 @@ def _count_stations_per_pair(df, stations, nstamin_per_evt=2,
     # Count station for each pair:
     for evt1, evt2, stations4pair, dtp, dts, _, _ in iter_over_event_pairs(df,
                                                                            evtnames,
-                                                                           nstamin_per_event_pair):
+                                                                           min_sta_per_pair):
         ie_1 = evtnames.index(evt1)
         ie_2 = evtnames.index(evt2)
         ns = len(stations4pair)
@@ -274,24 +286,24 @@ def _count_stations_per_pair(df, stations, nstamin_per_evt=2,
     return num_records, evt_records
 
 
-def _get_event_names_in_pickings(df, nstamin_per_evt=0):
+def _get_event_names_in_pickings(df, min_sta_per_evt=0):
     """
     Return a list of event names
     :param df: Dataframe of P & S picks, as loaded using load_pickings() method
-    :param nstamin_per_evt:
+    :param min_sta_per_evt:
     :return:
     """
     evtnames = [name
                 for name, subdf in df.groupby('event')
-                if len(subdf) >= nstamin_per_evt]
+                if len(subdf) >= min_sta_per_evt]
     return evtnames
 
 
-def _get_event_names_in_delays(df, nstamin_per_evt=0):
+def _get_event_names_in_delays(df, min_sta_per_evt=0):
     """
     Return a list of event names
     :param df: Dataframe of P & S picks, as loaded using load_pickings() method
-    :param nstamin_per_evt:
+    :param min_sta_per_evt:
     :return:
     """
     evts = []
@@ -303,50 +315,40 @@ def _get_event_names_in_delays(df, nstamin_per_evt=0):
     counts = list()
     for u in uniques:
         counts.append(evts.count(u))
-    return uniques[np.array(counts) >= nstamin_per_evt].tolist()
+    return uniques[np.array(counts) >= min_sta_per_evt].tolist()
 
 
-def _get_event_names(df, datatype='pickings', nmin_sta_per_evt=0):
-    if datatype == 'pickings':
-        names = _get_event_names_in_pickings(df, nstamin_per_evt=nmin_sta_per_evt)
-    elif datatype == 'delays':
-        names = _get_event_names_in_delays(df, nstamin_per_evt=nmin_sta_per_evt)
-    else:
-        raise ValueError(f'Unrecognized data type: {datatype}')
-    return names
-
-
-def _get_dates_from_pickings(df, nstamin_per_evt=0):
+def _get_dates_from_pickings(df, min_sta_per_evt=0):
     """
     Return a numpy array of event dates
     :param df: Dataframe of P & S picks, as loaded using load_pickings() method
-    :param nstamin_per_evt:
+    :param min_sta_per_evt:
     :return:
     """
     evtdates = np.array([subdf.loc[subdf['tP'] > 0, 'tP'].min()
                          for name, subdf in df.groupby('event')
-                         if len(subdf) >= nstamin_per_evt])
+                         if len(subdf) >= min_sta_per_evt])
     return evtdates
 
 
-def _count_tt_delay_pairs(df, evtnames, nstamin_per_event_pair):
+def _count_tt_delay_pairs(df, evtnames, min_sta_per_pair):
     """
         Count the number of joint P & S arrival-time delay pairs in the dataset
         for pairs matching the minimum number of station per pair.
 
         :param df: Dataframe of P & S arrival time delays, as loaded using load_data() function
         :param evtnames: List of event names of interest
-        :param nstamin_per_event_pair: Minimum number of stations with P and S delays per event pair
+        :param min_sta_per_pair: Minimum number of stations with P and S delays per event pair
         :return: count: integer
         """
     count = 0
     for evt1, evt2, stations, dtp, dts, _, _ in _iter_over_event_pairs(df,
                                                                 evtnames,
-                                                                nstamin_per_event_pair):
+                                                                min_sta_per_pair):
         count += len(dtp)
     return count
 
-def _iter_over_event_pairs(df, evtnames, nstamin):
+def _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
     """
     Loop over all event pairs and return P & S traveltime delays
     for all pairs matching (i) event names and, (ii) minimum number
@@ -354,7 +356,7 @@ def _iter_over_event_pairs(df, evtnames, nstamin):
 
     :param df: Dataframe of P & S arrival time delays, as loaded using load_delays() or pickings2delays() functions
     :param evtnames: List of event names of interest
-    :param nstamin: Minimum number of common stations
+    :param min_sta_per_pair: Minimum number of common stations
     :return: name1, name2, station, dtp, dts
     """
     ne = len(evtnames)
@@ -381,7 +383,7 @@ def _iter_over_event_pairs(df, evtnames, nstamin):
                     dtpvar.append(row['dtPvar'])
                     dtsvar.append(row['dtSvar'])
 
-            if ns>nstamin:
+            if ns>min_sta_per_pair:
                 dtp = np.array(dtp)
                 dts = np.array(dts)
                 dtpvar = np.array(dtpvar)

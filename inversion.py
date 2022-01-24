@@ -1,11 +1,11 @@
-import lib, graphs
+from clock_drifts import graphs
 import os
-from data import DataManager
-from lib import ClockDriftEstimator
+from clock_drifts import data 
+from clock_drifts import lib
 
 
 def run(datafile, datatype, eventfile, vpvsratio,
-        nstamin_per_evt, nstamin_per_eventpair,
+        min_sta_per_evt, min_sta_per_pair,
         outputdir, make_plots=False, reference_stations=[]):
 
     # Check existence of output directory:
@@ -18,17 +18,21 @@ def run(datafile, datatype, eventfile, vpvsratio,
     print(f'>> Is plot option activated ? {make_plots}')
 
     # Load data:
-    dm = DataManager(datafile, datatype)
+    dm = data.DataManager(datafile, datatype)
     dm.load()
-    dm.list_stations()
+    dm.list_all_stations()
     print(f'>> Reference stations (i.e. no drift):\n{reference_stations}')
 
+    print(f'>> Input parameters:\n'+
+          f'   Min. number of stations per evt = {min_sta_per_evt}\n' +
+          f'   Min. number of stations per pair = {min_sta_per_pair}')
+
     print(f">> Get event names and dates")
-    evtnames = dm.get_event_names(nmin_sta_per_evt=nstamin_per_evt)
+    evtnames = dm.get_events_with_records(min_sta_per_evt=min_sta_per_evt)
     evtdates = dm.load_dates_from_file(eventfile)
     print(f'   total number of events: {len(evtnames)} ({len(evtdates)} dates)')
 
-    cde = ClockDriftEstimator(dm)
+    cde = lib.ClockDriftEstimator(dm)
     drifts = cde.run(vpvsratio, reference_stations, nstamin_per_eventpair)
     
     if make_plots:
@@ -78,8 +82,8 @@ if __name__ == "__main__":
     DATAFILE = './dataset/delays.txt' #./dataset/pickings.txt' 
     DATATYPE = 'delays' # 'pickings' 
     EVENTFILE = './dataset/events.txt'
-    NSTAMIN_PER_EVT = 2
-    NSTAMIN_PER_EVENTPAIR = 2
+    MIN_STA_PER_EVT = 2
+    MIN_STA_PER_PAIR = 2
     OUTPUTDIR = './dataset/output/'
     VPVSRATIO = 1.732
 
@@ -88,8 +92,8 @@ if __name__ == "__main__":
             DATATYPE,
             EVENTFILE,
             VPVSRATIO,
-            NSTAMIN_PER_EVT,
-            NSTAMIN_PER_EVENTPAIR,
+            MIN_STA_PER_EVT,
+            MIN_STA_PER_PAIR,
             OUTPUTDIR,
             make_plots=False,
             reference_stations=['STA00'])

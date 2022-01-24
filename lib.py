@@ -5,10 +5,9 @@ import itertools
 import os
 import csv
 
-from data import (DataManager, 
-                  _iter_over_event_pairs, 
-                  _count_tt_delay_pairs,
-                  _QUASI_ZERO)
+from clock_drifts.data import (DataManager, 
+        _iter_over_event_pairs, _count_tt_delay_pairs,
+        _QUASI_ZERO)
 
 
 
@@ -26,7 +25,7 @@ class ClockDriftEstimator(object):
         self.rms = None
 
     def _build_matrices_for_inversion(self, vpvsratio, reference_stations,
-                                      nmin_sta_per_pair=2):
+                                      min_sta_per_pair=2):
         if (self.dm.delays is not None) \
             and (self.dm.evtnames is not None) \
             and (self.dm.stations is not None):
@@ -35,7 +34,7 @@ class ClockDriftEstimator(object):
                                               self.dm.evtnames,
                                               self.dm.stations,
                                               vpvsratio,
-                                              nstamin_per_event_pair=nmin_sta_per_pair,
+                                              min_sta_per_pair=min_sta_per_pair,
                                               stations_wo_error=reference_stations)
         else:
             raise ValueError('Missing at least one of the these quantities in DataManager instance: '+
@@ -89,12 +88,12 @@ class ClockDriftEstimator(object):
         _write_timing_errors(outdir, self.dm.stations, self.drifts)
         _write_residuals(outdir, self.rms, self.sqres)
 
-    def run(self, vpvsratio, reference_stations, nmin_sta_per_pair):
+    def run(self, vpvsratio, reference_stations, min_sta_per_pair):
         print(f'\n>> [1/4] Build matrices for inversion')
         self._build_matrices_for_inversion(
             vpvsratio,
             reference_stations,
-            nmin_sta_per_pair=nmin_sta_per_pair)
+            min_sta_per_pair=min_sta_per_pair)
         print(f'\n>> [2/4] Run inversion of relative drifts')
         self._solve_least_squares()
         print(f'\n>> [3/4] Compute residuals')
@@ -120,7 +119,7 @@ def _build_matrices_for_inversion(df,
                                  evtnames,
                                  stations_used,
                                  vpvsratio,
-                                 nstamin_per_event_pair=2,
+                                 min_sta_per_pair=2,
                                  verbose=False,
                                  stations_wo_error=[]):
     """
@@ -128,7 +127,7 @@ def _build_matrices_for_inversion(df,
     :param evtnames: list of event (names) used in the inversion
     :param stations_used: list of stations used in the inversion
     :param vpvsratio: float, vp/vs ratio
-    :param nstamin_per_event_pair: int, minimum number of stations per event pair
+    :param min_sta_per_pair: int, minimum number of stations per event pair
     :param verbose: boolean, set verbosity
     :param stations_wo_error: list of stations forced to have no timing errors
     :return:
@@ -147,13 +146,13 @@ def _build_matrices_for_inversion(df,
     """
     nm = _count_tt_delay_pairs(df,
                               evtnames,
-                              nstamin_per_event_pair)
+                              min_sta_per_pair)
     print(f'Number of arrival time delay pairs: {nm}')
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     idx = 0
     # a- For each event pair at each station, add a line in d and G:
     for evt1, evt2, stations, dtp, dts, dtpvar, dtsvar in \
-            _iter_over_event_pairs(df, evtnames, nstamin_per_event_pair):
+            _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
         dtp_dm = dtp - dtp.mean()
         dts_dm = dts - dts.mean()
         pvar = dtpvar + np.power(1/dtp.size,2)*np.sum(dtpvar)  # Variance on de-meaned P arrival time delays
@@ -262,7 +261,7 @@ def _build_matrices_for_inversion(df,
                     print(f'    Missing traveltime delay for pair ({i3},{i1})')
             """
         print(f'-- station {stations_used[k]}: {cnt_triplets} triplets '+
-              f'added (out of {len(all_triplets)})')
+              f'added (out of {len(all_triplets)} theo. combinations)' )
 
     g = np.array(g)
     d = np.array(d)
@@ -495,7 +494,7 @@ def _pairwise_delays_to_histories(dt, d_indx, stations, nm, evtdates, Cd):
 
 def _build_demeaned_delays(df,
                           evtnames,
-                          nstamin_per_event_pair,
+                          min_sta_per_pair,
                           verbose=False,
                           max_abs_delay=None):
     """
@@ -506,7 +505,7 @@ def _build_demeaned_delays(df,
     dtp = []
     dts = []
     for evt1, evt2, stations, dtp_pair, dts_pair, _, _ in \
-            _iter_over_event_pairs(df, evtnames, nstamin_per_event_pair):
+            _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
         dtp_dm = dtp_pair - dtp_pair.mean()
         dts_dm = dts_pair - dts_pair.mean()
         if verbose:
