@@ -4,11 +4,13 @@ from datetime import datetime
 import itertools
 import os
 import csv
+import sys
+from math import ceil
+
 
 from clock_drifts.data import (DataManager, 
         _iter_over_event_pairs, _count_tt_delay_pairs,
         _QUASI_ZERO)
-
 
 
 class ClockDriftEstimator(object):
@@ -105,6 +107,42 @@ class ClockDriftEstimator(object):
         return self.drifts  # Return clock drift histories as Python dict
 
 
+class ProgressBar():
+    """
+    Progress-bar object definition
+    """
+    def __init__(self, imax: float, title: str='', nsym: int=20):
+        """
+        :param imax: float, Maximum counter value, corresponding to 100% advancment
+        :param title: str, (Optional) Title string for the progress bar
+        :param nsym: int, (Optional) Width of progress bar, in number of "=" symbols (default: 20)
+        """
+        self.imax = imax
+        self.title = title
+        self.nsym = nsym
+
+
+    def update(self, i: float, imax: float=None, title: str=None):
+        """ Display an ASCII progress bar with advancement level at (i/imax) %
+
+        :param i: float, Current counter value
+        :param imax: float, Maximum counter value, corresponding to 100% advancment
+        :param title: str, (Optional) Title string for the progress bar
+        :param nsym: int, (Optional) Width of progress bar, in number of "=" symbols (default: 20)
+        """
+        if imax is not None:
+            self.imax = imax
+        if title is not None:
+            self.title = title
+        sys.stdout.write('\r')
+        fv = float(i)/float(self.imax)  # Fractional value, between 0 and 1
+        sys.stdout.write( ('{0} [{1:'+str(self.nsym)+'s}] {2:3d}%').format(self.title, '='*ceil(
+            fv*self.nsym), ceil(fv*100)) )
+        if i==self.imax:
+            sys.stdout.write('\n')
+        sys.stdout.flush()
+
+
 
 # Functions:
 def _inverse(m: np.ndarray):
@@ -148,6 +186,7 @@ def _build_matrices_for_inversion(df,
                               evtnames,
                               min_sta_per_pair)
     print(f'Number of arrival time delay pairs: {nm}')
+    bar = ProgressBar(nm)
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     idx = 0
     # a- For each event pair at each station, add a line in d and G:
@@ -198,17 +237,17 @@ def _build_matrices_for_inversion(df,
                     mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m)
        
             idx += n12
-            if verbose:
-                print(f'--> added {n12} S & P traveltime delay pairs to matrix d')
+            bar.update(idx, title='Including delays')
     ndel = len(d_indx)
 
     # c- Add closure relationship for every earthquake triplet at each station:
-    print(f'Append station-wise closure relations for every earthquake triplet')
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
     i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
     d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
     dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)
-    for k in range(len(stations_used)):
+    nsta = len(stations_used)
+    bar = ProgressBar(nsta, title=f'Including station-wise closure relations')
+    for k in range(nsta):
         j = np.where(d_indx_wo_zeros[:, 2] == k)[0]
         # Extract unique list of events belonging to pairs recorded by station k:
         evts_indices = np.unique(d_indx_wo_zeros[j, 0:2])
@@ -236,32 +275,25 @@ def _build_matrices_for_inversion(df,
             i23, pol23 = _find_evt_pair_index(i2, i3)
             i31, pol31 = _find_evt_pair_index(i3, i1)
 
-            if np.all(np.array([pol12, pol23, pol31]) != 0):
-                cnt_triplets += 1
+            if np.any(np.array([pol12, pol23, pol31]) == 0):
+                continue
 
-                # add line to g: (delta_12 + delta_23 + delta_31 = 0):
-                g_line = np.zeros((nm,))
-                g_line[i12] = pol12
-                g_line[i23] = pol23
-                g_line[i31] = pol31
-                g.append(g_line)
+            cnt_triplets += 1
 
-                # add 0 element to d, and also to the original d_indx:
-                d.append(0.0)
-                #dcov.append(vardt[i12] + vardt[i23] + vardt[i31])  # Variance on closure relation
-                dcov.append(dcov[i12] + dcov[i23] + dcov[i31])  # Variance on closure relation
-                d_indx = np.vstack([d_indx, np.array([[i12 * pol12, i23 * pol23, i31 * pol31]])])
-            """
-            else:
-                if pol12==0:
-                    print(f'    Missing traveltime delay for pair ({i1},{i2})')
-                if pol23==0:
-                    print(f'    Missing traveltime delay for pair ({i2},{i3})')
-                if pol31==0:
-                    print(f'    Missing traveltime delay for pair ({i3},{i1})')
-            """
-        print(f'-- station {stations_used[k]}: {cnt_triplets} triplets '+
-              f'added (out of {len(all_triplets)} theo. combinations)' )
+            # add line to g: (delta_12 + delta_23 + delta_31 = 0):
+            g_line = np.zeros((nm,))
+            g_line[i12] = pol12
+            g_line[i23] = pol23
+            g_line[i31] = pol31
+            g.append(g_line)
+
+            # add 0 element to d, and also to the original d_indx:
+            d.append(0.0)
+            #dcov.append(vardt[i12] + vardt[i23] + vardt[i31])  # Variance on closure relation
+            dcov.append(dcov[i12] + dcov[i23] + dcov[i31])  # Variance on closure relation
+            d_indx = np.vstack([d_indx, np.array([[i12 * pol12, i23 * pol23, i31 * pol31]])])
+
+        bar.update(k+1)
 
     g = np.array(g)
     d = np.array(d)
@@ -541,4 +573,6 @@ def _write_residuals(outputdir, rms, sum_sq_res):
     with open(filename, 'wt') as f:
          f.write(f'RMS = {rms}\n')
          f.write(f'SUM SQ. RES. = {sum_sq_res}')
+
+
 

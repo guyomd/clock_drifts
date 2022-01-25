@@ -323,7 +323,7 @@ def _get_event_names_in_delays(df, min_sta_per_evt=0):
     """
     pairs = []
     for _, row in df.iterrows():
-        if (row['dtP']>0) and (row['dtS']>0):
+        if (np.abs(row['dtP'])>0) and (np.abs(row['dtS'])>0):
             pairs.append(f'{row["evt1"]}-#-{row["station"]}')  # "event-station" pair
             pairs.append(f'{row["evt2"]}-#-{row["station"]}')
     uniq_pairs = np.unique(pairs)
