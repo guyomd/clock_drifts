@@ -95,7 +95,7 @@ class DataManager(object):
                 records.update({sta: [row['evt1'], row['evt2']] })
         for sta in records.keys():
             print(f'{sta}: {len(records[sta])}')
-        return stations
+        return records
 
 
     def get_events_with_records(self, min_sta_per_evt=0):
@@ -317,20 +317,24 @@ def _get_event_names_in_pickings(df, min_sta_per_evt=0):
 def _get_event_names_in_delays(df, min_sta_per_evt=0):
     """
     Return a list of event names
-    :param df: Dataframe of P & S picks, as loaded using load_pickings() method
+    :param df: Dataframe of P & S arrival time delays
     :param min_sta_per_evt:
     :return:
     """
-    evts = []
+    pairs = []
     for _, row in df.iterrows():
-        evts.append(row['evt1'])
-        evts.append(row['evt2'])
-
-    uniques = np.unique(evts)
+        if (row['dtP']>0) and (row['dtS']>0):
+            pairs.append(f'{row["evt1"]}-#-{row["station"]}')  # "event-station" pair
+            pairs.append(f'{row["evt2"]}-#-{row["station"]}')
+    uniq_pairs = np.unique(pairs)
+    evts = list()
+    for p in uniq_pairs:
+        evts.append(p.split('-#-')[0])
+    uniq_evts = np.unique(evts)
     counts = list()
-    for u in uniques:
+    for u in uniq_evts:
         counts.append(evts.count(u))
-    return uniques[np.array(counts) >= min_sta_per_evt].tolist()
+    return uniq_evts[np.array(counts) >= min_sta_per_evt].tolist()  
 
 
 def _get_dates_from_pickings(df, min_sta_per_evt=0):
