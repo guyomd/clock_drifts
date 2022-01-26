@@ -91,12 +91,15 @@ class ClockDriftEstimator(object):
         _write_timing_errors(outdir, self.dm.stations, self.drifts)
         _write_residuals(outdir, self.rms, self.sqres)
 
-    def run(self, vpvsratio, reference_stations, min_sta_per_pair):
+    def run(self, vpvsratio, reference_stations, min_sta_per_pair, add_closure_triplets=True):
         print(f'\n>> [1/4] Build matrices for inversion')
+        if add_closure_triplets:
+            print(f'         (NB: closure triplets not included')
         self._build_matrices_for_inversion(
             vpvsratio,
             reference_stations,
-            min_sta_per_pair=min_sta_per_pair)
+            min_sta_per_pair=min_sta_per_pair,
+            add_closure_triplets=add_closure_triplets)
         print(f'\n>> [2/4] Run inversion of relative drifts')
         self._solve_least_squares()
         print(f'\n>> [3/4] Compute residuals')
