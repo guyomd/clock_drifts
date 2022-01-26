@@ -27,7 +27,7 @@ class ClockDriftEstimator(object):
         self.rms = None
 
     def _build_matrices_for_inversion(self, vpvsratio, reference_stations,
-                                      min_sta_per_pair=2):
+                                      min_sta_per_pair=2, add_closure_triplets=True):
         if (self.dm.delays is not None) \
             and (self.dm.evtnames is not None) \
             and (self.dm.stations is not None):
@@ -37,7 +37,8 @@ class ClockDriftEstimator(object):
                                               self.dm.stations,
                                               vpvsratio,
                                               min_sta_per_pair=min_sta_per_pair,
-                                              stations_wo_error=reference_stations)
+                                              stations_wo_error=reference_stations,
+                                              add_closure_triplets=add_closure_triplets)
         else:
             raise ValueError('Missing at least one of the these quantities in DataManager instance: '+
                              'delays, evtnames or stations.')
@@ -159,7 +160,8 @@ def _build_matrices_for_inversion(df,
                                  vpvsratio,
                                  min_sta_per_pair=2,
                                  verbose=False,
-                                 stations_wo_error=[]):
+                                 stations_wo_error=[],
+                                 add_closure_triplets=True):
     """
     :param df: Input DataFrame, as formatted by load_data() method
     :param evtnames: list of event (names) used in the inversion
@@ -168,6 +170,7 @@ def _build_matrices_for_inversion(df,
     :param min_sta_per_pair: int, minimum number of stations per event pair
     :param verbose: boolean, set verbosity
     :param stations_wo_error: list of stations forced to have no timing errors
+    :param add_closure_triplets: boolean, Flag specifying whether closure triplets should be appended to G.
     :return:
     """
     d = []
@@ -239,61 +242,62 @@ def _build_matrices_for_inversion(df,
             idx += n12
             bar.update(idx, title='Including delays')
     ndel = len(d_indx)
-
-    # c- Add closure relationship for every earthquake triplet at each station:
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
-    i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
-    d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
-    dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)
-    nsta = len(stations_used)
-    bar = ProgressBar(nsta, title=f'Including station-wise closure relations')
-    for k in range(nsta):
-        j = np.where(d_indx_wo_zeros[:, 2] == k)[0]
-        # Extract unique list of events belonging to pairs recorded by station k:
-        evts_indices = np.unique(d_indx_wo_zeros[j, 0:2])
-        all_triplets = list(itertools.combinations(evts_indices.tolist(), 3))
 
-        # For each triplet, add a line to G, if all delays are existing in d:
-        cnt_triplets = 0
-        for i1, i2, i3 in all_triplets:
+    if add_closure_triplets:
+        # c- Add closure relationship for every earthquake triplet at each station:
+        i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
+        d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
+        dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)
+        nsta = len(stations_used)
+        bar = ProgressBar(nsta, title=f'Including station-wise closure relations')
+        for k in range(nsta):
+            j = np.where(d_indx_wo_zeros[:, 2] == k)[0]
+            # Extract unique list of events belonging to pairs recorded by station k:
+            evts_indices = np.unique(d_indx_wo_zeros[j, 0:2])
+            all_triplets = list(itertools.combinations(evts_indices.tolist(), 3))
 
-            def _find_evt_pair_index(e1, e2):
-                ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e1,
+            # For each triplet, add a line to G, if all delays are existing in d:
+            cnt_triplets = 0
+            for i1, i2, i3 in all_triplets:
+
+                def _find_evt_pair_index(e1, e2):
+                    ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e1,
                                               d_indx_wo_zeros[j, 1] == e2))[0]
-                polarity = 1
-                if len(ind) == 0:
-                    ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e2,
+                    polarity = 1
+                    if len(ind) == 0:
+                        ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e2,
                                                   d_indx_wo_zeros[j, 1] == e1))[0]
-                    polarity = -1
-                if len(ind) == 0:
-                    polarity = 0
-                    return None, polarity
-                else:
-                    return j[ind][0], polarity  # index in g_line, delay polarity (1/-1)
+                        polarity = -1
+                    if len(ind) == 0:
+                        polarity = 0
+                        return None, polarity
+                    else:
+                        return j[ind][0], polarity  # index in g_line, delay polarity (1/-1)
 
-            i12, pol12 = _find_evt_pair_index(i1, i2)
-            i23, pol23 = _find_evt_pair_index(i2, i3)
-            i31, pol31 = _find_evt_pair_index(i3, i1)
+                i12, pol12 = _find_evt_pair_index(i1, i2)
+                i23, pol23 = _find_evt_pair_index(i2, i3)
+                i31, pol31 = _find_evt_pair_index(i3, i1)
 
-            if np.any(np.array([pol12, pol23, pol31]) == 0):
-                continue
+                if np.any(np.array([pol12, pol23, pol31]) == 0):
+                    continue
 
-            cnt_triplets += 1
+                cnt_triplets += 1
 
-            # add line to g: (delta_12 + delta_23 + delta_31 = 0):
-            g_line = np.zeros((nm,))
-            g_line[i12] = pol12
-            g_line[i23] = pol23
-            g_line[i31] = pol31
-            g.append(g_line)
+                # add line to g: (delta_12 + delta_23 + delta_31 = 0):
+                g_line = np.zeros((nm,))
+                g_line[i12] = pol12
+                g_line[i23] = pol23
+                g_line[i31] = pol31
+                g.append(g_line)
 
-            # add 0 element to d, and also to the original d_indx:
-            d.append(0.0)
-            #dcov.append(vardt[i12] + vardt[i23] + vardt[i31])  # Variance on closure relation
-            dcov.append(dcov[i12] + dcov[i23] + dcov[i31])  # Variance on closure relation
-            d_indx = np.vstack([d_indx, np.array([[i12 * pol12, i23 * pol23, i31 * pol31]])])
+                # add 0 element to d, and also to the original d_indx:
+                d.append(0.0)
+                #dcov.append(vardt[i12] + vardt[i23] + vardt[i31])  # Variance on closure relation
+                dcov.append(dcov[i12] + dcov[i23] + dcov[i31])  # Variance on closure relation
+                d_indx = np.vstack([d_indx, np.array([[i12 * pol12, i23 * pol23, i31 * pol31]])])
 
-        bar.update(k+1)
+            bar.update(k+1)
 
     g = np.array(g)
     d = np.array(d)
