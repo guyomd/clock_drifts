@@ -6,7 +6,8 @@ from clock_drifts import lib
 
 def run(datafile, datatype, eventfile, vpvsratio,
         min_sta_per_evt, min_sta_per_pair,
-        outputdir, make_plots=False, reference_stations=[]):
+        outputdir, make_plots=False, reference_stations=[],
+        add_closure_relation=True):
 
     # Check existence of output directory:
     if not os.path.exists(outputdir):
@@ -36,7 +37,10 @@ def run(datafile, datatype, eventfile, vpvsratio,
     print(f'   total number of events: {len(evtnames)} ({len(evtdates)} dates)')
 
     cde = lib.ClockDriftEstimator(dm)
-    drifts = cde.run(vpvsratio, reference_stations, min_sta_per_pair)
+    drifts = cde.run(vpvsratio, 
+                     reference_stations, 
+                     min_sta_per_pair, 
+                     add_closure_triplets=add_closure_relation)
     
     if make_plots:
         # Display relative timing errors:

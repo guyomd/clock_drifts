@@ -94,7 +94,9 @@ class ClockDriftEstimator(object):
     def run(self, vpvsratio, reference_stations, min_sta_per_pair, add_closure_triplets=True):
         print(f'\n>> [1/4] Build matrices for inversion')
         if add_closure_triplets:
-            print(f'         (NB: closure triplets not included')
+            print(f'         (including closure triplets)')
+        else:
+            print(f'         (closure triplets not included)')
         self._build_matrices_for_inversion(
             vpvsratio,
             reference_stations,
