@@ -21,7 +21,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
     # Load data:
     dm = data.DataManager(datafile, datatype)
     dm.load()
-    print('>> Raw data analysis (file "{datafile}"):')
+    print(f'>> Raw data analysis (file "{datafile}"):')
     dm.count_records_per_station()
 
     print(f'>> Input parameters:\n'+
