@@ -8,8 +8,8 @@ import sys
 from math import ceil
 
 
-from clock_drifts.data import (DataManager, 
-        _iter_over_event_pairs, _QUASI_ZERO)
+from clock_drifts.data import DataManager, _QUASI_ZERO
+
 
 
 class ClockDriftEstimator(object):
@@ -25,24 +25,20 @@ class ClockDriftEstimator(object):
         self.sqres = None
         self.rms = None
 
-    def _build_matrices_for_inversion(self, vpvsratio, reference_stations,
-                                      min_sta_per_pair=2, add_closure_triplets=True):
-        if self.dm.event_pair_data is None:
-            if (min_sta_per_pair is None) or (min_sta_per_pair < 0):
-                raise ValueError('Please specify an (integer positive) value for parameter "min_sta_per_pair"')
-            self.dm._get_event_pair_data(min_sta_per_pair)
+    def _build_inputs_for_inversion(self, vpvsratio, reference_stations,
+                                      add_closure_triplets=True):
 
         if (self.dm.delays is not None) \
             and (self.dm.evtnames is not None) \
             and (self.dm.stations is not None):
             self.G, self.d, self.d_indx, self.Cd, self.Cm, self.ndel = \
-                _build_matrices_for_inversion(self.dm.event_pair_data,
-                                              self.dm.evtnames,
-                                              self.dm.stations,
-                                              vpvsratio,
-                                              min_sta_per_pair=min_sta_per_pair,
-                                              stations_wo_error=reference_stations,
-                                              add_closure_triplets=add_closure_triplets)
+                _build_matrices(self.dm.delays,
+                                self.dm.evtnames,
+                                self.dm.stations,
+                                vpvsratio,
+                                min_sta_per_pair=self.dm.min_sta_per_pair,
+                                stations_wo_error=reference_stations,
+                                add_closure_triplets=add_closure_triplets)
         else:
             raise ValueError('Missing at least one of the these quantities in DataManager instance: '+
                              'delays, evtnames or stations.')
@@ -95,16 +91,15 @@ class ClockDriftEstimator(object):
         _write_timing_errors(outdir, self.dm.stations, self.drifts)
         _write_residuals(outdir, self.rms, self.sqres)
 
-    def run(self, vpvsratio, reference_stations, min_sta_per_pair, add_closure_triplets=True):
+    def run(self, vpvsratio, reference_stations, add_closure_triplets=True):
         print(f'\n>> [1/4] Build matrices for inversion')
         if add_closure_triplets:
             print(f'         (including closure triplets)')
         else:
             print(f'         (closure triplets not included)')
-        self._build_matrices_for_inversion(
+        self._build_inputs_for_inversion(
             vpvsratio,
             reference_stations,
-            min_sta_per_pair=min_sta_per_pair,
             add_closure_triplets=add_closure_triplets)
         print(f'\n>> [2/4] Run inversion of relative drifts')
         self._solve_least_squares()
@@ -163,16 +158,10 @@ def _inverse(m: np.ndarray):
         minv = np.linalg.pinv(m)
     return minv
 
-def _build_matrices_for_inversion(event_pair_data,
-                                  evtnames,
-                                  stations_used,
-                                  vpvsratio,
-                                  min_sta_per_pair=2,
-                                  verbose=False,
-                                  stations_wo_error=[],
-                                  add_closure_triplets=True):
+def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=2,
+                    verbose=False, stations_wo_error=[], add_closure_triplets=True):
     """
-    :param df: Input DataFrame, as formatted by load_data() method
+    :param delays: Pandas.DataFrame, as formatted by load_data() method
     :param evtnames: list of event (names) used in the inversion
     :param stations_used: list of stations used in the inversion
     :param vpvsratio: float, vp/vs ratio
@@ -194,72 +183,61 @@ def _build_matrices_for_inversion(event_pair_data,
       followed by
           (i12*pol12, i23*pol23, i31*pol31) for each triplet
     """
-    nm = event_pair_data['total_counts']
-    print(f'Number of arrival time delay pairs: {nm}')
+    pairs = delays.groupby(['evt1', 'evt2']) \
+                  .filter(lambda x: len(x) > min_sta_per_pair)  # Pandas.DataFrame instance
+    nm = len(pairs) 
+    print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {nm}')
     bar = ProgressBar(nm)
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     idx = 0
-    # a- For each event pair at each station, add a line in d and G:
-    for ip in range(len(event_pair_data['name1'])):
-        evt1 = event_pair_data['name1'][ip]
-        evt2 = event_pair_data['name2'][ip]
-        stations = event_pair_data['stations'][ip]
-        dtp = event_pair_data['dtp'][ip]
-        dts = event_pair_data['dts'][ip]
-        dtpvar = event_pair_data['dtpvar'][ip]
-        dtsvar = event_pair_data['dtsvar'][ip]
+    # For each event pair at each station, add a line in d and G:
+    for grp_name, grp in pairs.groupby(['evt1', 'evt2']):
+        evt1, evt2 = grp_name
+        dtp_dm = (grp['dtP']-grp['dtP'].mean()).values
+        dts_dm = (grp['dtS']-grp['dtS'].mean()).values
+        dtpvar = grp['dtPvar'].values
+        dtsvar = grp['dtPvar'].values
+        n12 = len(grp['dtP'])  # Number of delays for the current pair: (evt1, evt2)
+        pvar = (grp['dtPvar'] + grp['dtPvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned P arrival time delays
+        svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned S arrival time delays
+        nex = len([s for s in grp['station'] if s in stations_wo_error])
 
-        dtp_dm = dtp - dtp.mean()
-        dts_dm = dts - dts.mean()
-        pvar = dtpvar + np.power(1/dtp.size,2)*np.sum(dtpvar)  # Variance on de-meaned P arrival time delays
-        svar = dtsvar + np.power(1/dts.size,2)*np.sum(dtsvar)  # Variance on de-meaned S arrival time delays
-        if verbose:
-            print(f'\n# Event pair: {evt1} - {evt2}')
-            print(f'Common stations with TPg and TSg pickings: {stations}')
-            print(f'Diff. traveltimes:\ndTp: {dtp}\ndTs: {dts}')
-            print(f'Mean diff. traveltimes:\n<dTp>: {dtp.mean()}\n<dTs>: {dts.mean()}')
-            print(f'De-meaned diff. traveltimes:\ndTp-<dTp>: {dtp_dm}\ndTs-<dTs>: {dts_dm}')
+        ie1 = evtnames.index(evt1)
+        ie2 = evtnames.index(evt2)
+        ista = [stations_used.index(s) for s in grp['station']]
+        ns = len(ista)
 
-        n12 = len(dtp_dm)  # Number of traveltime delays for this pair of events: (evt1, evt2)
-        nex = len([s for s in stations if s in stations_wo_error])
+        for k in range(ns):
+            # Add element to d (array of observations):
+            d.append((dts_dm[k] - vpvsratio * dtp_dm[k]) / (1 - vpvsratio))
+            dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
+            vardt.append(dtsvar[k])
+            d_indx.append((ie1, ie2, ista[k]))
 
-        if n12 > 0:
-            ie1 = evtnames.index(evt1)
-            ie2 = evtnames.index(evt2)
-            ista = [stations_used.index(s) for s in stations]
-            ns = len(ista)
+            # Buildup G:
+            g_line = np.zeros((nm,))
+            g_line[idx + k] = 1
+            # De-meaned timing error: remove average timing error for all observations of this event pair
+            g_line[idx:(idx + n12)] -= 1 / n12
+            g.append(g_line)
 
-            for k in range(ns):
-                # Add element to d (array of observations):
-                d.append((dts_dm[k] - vpvsratio * dtp_dm[k]) / (1 - vpvsratio))
+            # Eventually, add constraint on stations forced to have zero timing errors (+/- picking errors):
+            if stations_used[k] in stations_wo_error:
+                d.append(0.0)
                 dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
-                vardt.append(dtsvar[k])
-                d_indx.append((ie1, ie2, ista[k]))
-
-                # Buildup G:
+                d_indx.append((-9, -9, -9))  # Add flag to delays forced to 0
                 g_line = np.zeros((nm,))
                 g_line[idx + k] = 1
-                # De-meaned timing error: remove average timing error for all observations of this event pair
-                g_line[idx:(idx + n12)] -= 1 / n12
                 g.append(g_line)
-
-                # b- Add constraint on stations forced to have zero timing errors (+/- picking errors):
-                if stations_used[k] in stations_wo_error:
-                    d.append(0.0)
-                    dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
-                    d_indx.append((-9, -9, -9))  # Add flag to delays forced to 0
-                    g_line = np.zeros((nm,))
-                    g_line[idx + k] = 1
-                    g.append(g_line)
-                    mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m)
-       
-            idx += n12
-            bar.update(idx, title='Adding delays to matrices G and d... ')
+                mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m)
+          
+        idx += n12
+        bar.update(idx, title='Adding delays to matrices G and d... ')
     ndel = len(d_indx)
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
 
+    # Add closure relationship for every earthquake triplet at each station:
     if add_closure_triplets:
-        # c- Add closure relationship for every earthquake triplet at each station:
         i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
         d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
         dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)

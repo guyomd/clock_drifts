@@ -4,7 +4,7 @@ import numpy as np
 _QUASI_ZERO = 1E-6
 
 class DataManager(object):
-    def __init__(self, filename, datatype, verbose=False):
+    def __init__(self, filename, datatype, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
         self.filename = filename
         self.datatype = datatype
         self.verbose = verbose
@@ -13,7 +13,8 @@ class DataManager(object):
         self.stations = None
         self.evtnames = None
         self.evtdates = None
-        self.event_pair_data = None
+        self.min_sta_per_evt = min_sta_per_evt
+        self.min_sta_per_pair = min_sta_per_pair
 
     def load(self):
         print(f'>> Load data from file: {self.filename}')
@@ -31,33 +32,6 @@ class DataManager(object):
         else:
             raise ValueError(f'Unrecognized data type : {self.datatype}')
 
-
-    def _get_event_pair_data(self, min_sta_per_pair):
-        """ 
-        Loop over all event pairs and returns P & S arrival time delays for 
-        all pairs matching (i) event names and (ii) minimum number of common
-        stations recording each pair
-        """
-        self.event_pair_data = {'name1': [],
-                                'name2': [],
-                                'stations': [],
-                                'dtp': [],
-                                'dts': [],
-                                'dtpvar': [],
-                                'dtsvar': [], 
-                                'total_counts': 0}
-        for n1, n2, sta, dtp, dts, dtpv, dtsv in _iter_over_event_pairs(self.delays, 
-                                                                        self.evtnames, 
-                                                                        min_sta_per_pair):
-            self.event_pair_data['name1'].append(n1)
-            self.event_pair_data['name2'].append(n2)
-            self.event_pair_data['stations'].append(sta)
-            self.event_pair_data['dtp'].append(dtp)
-            self.event_pair_data['dts'].append(dts)
-            self.event_pair_data['dtpvar'].append(dtpv)
-            self.event_pair_data['dtsvar'].append(dtsv)
-            self.event_pair_data['total_counts'] += len(dtp)
-    
 
 
     def load_dates_from_file(self, eventfile, delim=';'):
@@ -99,15 +73,10 @@ class DataManager(object):
         return self.stations
 
 
-    def count_stations_per_pair(self, min_sta_per_pair=None):
-        if self.event_pair_data is None:
-            if (min_sta_per_pair is None) or (min_sta_per_pair < 0):
-                raise ValueError('Please specify an (integer positive) value for parameter "min_sta_per_pair"')
-            self._get_event_pair_data(min_sta_per_pair)
-
+    def count_stations_per_pair(self):
         if self.stations is not None:
             num_records, sta_records = \
-                _count_stations_per_pair(self.event_pair_data, self.stations)
+                _count_stations_per_pair(self.delays, self.stations)
         else:
             raise ValueError("Stations list should be initialized first. Try self.list_stations() method.")
         return num_records, sta_records
@@ -116,38 +85,33 @@ class DataManager(object):
     def count_records_per_station(self):
         records = dict()
         print(f'number of records per station:')
-        for _, row in self.delays.iterrows():
-            sta = row['station']
-            if sta in records.keys():
-                for evt in [row['evt1'], row['evt2']]:
-                    if evt not in records[sta]:
-                        records[sta].append(evt)
-            else:
-                records.update({sta: [row['evt1'], row['evt2']] })
+        for sta, grp in self.delays.groupby('station'):
+            uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
+            records.update({sta: uniq_evts})
         for sta in records.keys():
             print(f'{sta}: {len(records[sta])}')
         return records
 
 
-    def get_events_with_records(self, min_sta_per_evt=0):
+    def get_events_with_records(self):
         if self.datatype == 'pickings':
             self.evtnames = _get_event_names_in_pickings(
                     self.picks,
-                    min_sta_per_evt=min_sta_per_evt)
+                    min_sta_per_evt=self.min_sta_per_evt)
         elif self.datatype == 'delays':
             self.evtnames = _get_event_names_in_delays(
                     self.delays,
-                    min_sta_per_evt=min_sta_per_evt)
+                    min_sta_per_evt=self.min_sta_per_evt)
         else:
             raise ValueError(f'Unrecognized data type: {iself.datatype}')
         return self.evtnames
 
 
-    def get_dates_from_pickings(self, min_sta_per_evt=0):
+    def get_dates_from_pickings(self):
         if self.picks is not None:
             self.evtdates = _get_dates_from_pickings(
                 self.picks,
-                min_sta_per_evt=min_sta_per_evt)
+                min_sta_per_evt=self.min_sta_per_evt)
         else:
             raise ValueError('Error. Input data was not loaded as arrival times.')
         return self.evtdates
@@ -201,15 +165,19 @@ def _load_data(filename, datatype='delays', verbose=False):
     """
     if datatype == 'delays':
         df = _load_delays(filename, verbose=verbose)
-        return df
+        return df[ (df['dtP'] > 0.0) & (df['dtS'] > 0.0) ]
+
     elif datatype == 'pickings':
         p = _load_pickings(filename, verbose=verbose)
         if verbose:
             print('  Compoute inter-event arrival-time delays')
         df = _pickings2delays(p)
-        return df, p
+        return df[ (df['dtP'] > 0.0) & (df['dtS'] > 0.0) ], p
+    
     else:
         raise ValueError(f'Unrecognized type of input data: "{datatype}"')
+
+
 
 
 def _pickings2delays(df):
@@ -301,7 +269,7 @@ def _list_available_stations(df, verbose=False):
     return sta_sorted
 
 
-def _count_stations_per_pair(event_pair_data, stations):
+def _count_stations_per_pair(df, stations):
     evtnames = np.unique(
         np.append(pd.unique(df['evt1']).values,
                   pd.unique(df['evt1']).values)
@@ -316,19 +284,14 @@ def _count_stations_per_pair(event_pair_data, stations):
                    for s in stations}
 
     # Count station for each pair:
-    for ip in range(len(event_pair_data['name1'])):
-        evt1 = event_pair_data['name1'][ip]
-        evt2 = event_pair_data['name2'][ip]
-        stations4pair = event_pair_data['stations'][ip]
-        dtp = event_pair_data['dtp'][ip]
-        dts = event_pair_data['dts'][ip]
-
+    for name, grp in df.groupby(['evt1', 'evt2']):
+        evt1, evt2 = name
         ie_1 = evtnames.index(evt1)
         ie_2 = evtnames.index(evt2)
-        ns = len(stations4pair)
-        num_records[ie_1, ie_2] = ns
-        num_records[ie_2, ie_1] = ns
-        for s in stations4pair:
+        siz = grp.size()
+        num_records[ie_1, ie_2] = siz
+        num_records[ie_2, ie_1] = siz
+        for s in grp['station']:
             evt_records[s][ie_1, ie_2] = 1
             evt_records[s][ie_2, ie_1] = 1
 
@@ -384,44 +347,3 @@ def _get_dates_from_pickings(df, min_sta_per_evt=0):
     return evtdates
 
 
-def _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
-    """
-    Loop over all event pairs and return P & S traveltime delays
-    for all pairs matching (i) event names and, (ii) minimum number
-    of common stations given per pair.
-
-    :param df: Dataframe of P & S arrival time delays, as loaded using load_delays() or pickings2delays() functions
-    :param evtnames: List of event names of interest
-    :param min_sta_per_pair: Minimum number of common stations
-    :return: name1, name2, station, dtp, dts
-    """
-    ne = len(evtnames)
-    for i1 in range(ne):
-        name1 = evtnames[i1]
-        for i2 in range(i1+1,ne):
-            name2 = evtnames[i2]
-
-            ns = 0
-            dtp = []
-            dts = []
-            dtpvar = []
-            dtsvar = []
-            station = []
-            for _, row in df[(df['evt1'] == name1) & (df['evt2'] == name2)].iterrows():
-                if np.all( [
-                    np.bool(np.abs(row['dtP']) > 0.0), 
-                    np.bool(np.abs(row['dtS']) > 0.0)] ):
-                    # Increase the counter of common stations:
-                    ns += 1
-                    station.append(row['station'])
-                    dtp.append(row['dtP'])
-                    dts.append(row['dtS'])
-                    dtpvar.append(row['dtPvar'])
-                    dtsvar.append(row['dtSvar'])
-
-            if ns>min_sta_per_pair:
-                dtp = np.array(dtp)
-                dts = np.array(dts)
-                dtpvar = np.array(dtpvar)
-                dtsvar = np.array(dtsvar)
-                yield name1, name2, station, dtp, dts, dtpvar, dtsvar
