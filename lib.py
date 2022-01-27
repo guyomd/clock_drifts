@@ -9,8 +9,7 @@ from math import ceil
 
 
 from clock_drifts.data import (DataManager, 
-        _iter_over_event_pairs, _count_tt_delay_pairs,
-        _QUASI_ZERO)
+        _iter_over_event_pairs, _QUASI_ZERO)
 
 
 class ClockDriftEstimator(object):
@@ -28,11 +27,16 @@ class ClockDriftEstimator(object):
 
     def _build_matrices_for_inversion(self, vpvsratio, reference_stations,
                                       min_sta_per_pair=2, add_closure_triplets=True):
+        if self.dm.event_pair_data is None:
+            if (min_sta_per_pair is None) or (min_sta_per_pair < 0):
+                raise ValueError('Please specify an (integer positive) value for parameter "min_sta_per_pair"')
+            self.dm._get_event_pair_data(min_sta_per_pair)
+
         if (self.dm.delays is not None) \
             and (self.dm.evtnames is not None) \
             and (self.dm.stations is not None):
             self.G, self.d, self.d_indx, self.Cd, self.Cm, self.ndel = \
-                _build_matrices_for_inversion(self.dm.delays,
+                _build_matrices_for_inversion(self.dm.event_pair_data,
                                               self.dm.evtnames,
                                               self.dm.stations,
                                               vpvsratio,
@@ -159,14 +163,14 @@ def _inverse(m: np.ndarray):
         minv = np.linalg.pinv(m)
     return minv
 
-def _build_matrices_for_inversion(df,
-                                 evtnames,
-                                 stations_used,
-                                 vpvsratio,
-                                 min_sta_per_pair=2,
-                                 verbose=False,
-                                 stations_wo_error=[],
-                                 add_closure_triplets=True):
+def _build_matrices_for_inversion(event_pair_data,
+                                  evtnames,
+                                  stations_used,
+                                  vpvsratio,
+                                  min_sta_per_pair=2,
+                                  verbose=False,
+                                  stations_wo_error=[],
+                                  add_closure_triplets=True):
     """
     :param df: Input DataFrame, as formatted by load_data() method
     :param evtnames: list of event (names) used in the inversion
@@ -190,16 +194,21 @@ def _build_matrices_for_inversion(df,
       followed by
           (i12*pol12, i23*pol23, i31*pol31) for each triplet
     """
-    nm = _count_tt_delay_pairs(df,
-                              evtnames,
-                              min_sta_per_pair)
+    nm = event_pair_data['total_counts']
     print(f'Number of arrival time delay pairs: {nm}')
     bar = ProgressBar(nm)
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     idx = 0
     # a- For each event pair at each station, add a line in d and G:
-    for evt1, evt2, stations, dtp, dts, dtpvar, dtsvar in \
-            _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
+    for ip in range(len(event_pair_data['name1'])):
+        evt1 = event_pair_data['name1'][ip]
+        evt2 = event_pair_data['name2'][ip]
+        stations = event_pair_data['stations'][ip]
+        dtp = event_pair_data['dtp'][ip]
+        dts = event_pair_data['dts'][ip]
+        dtpvar = event_pair_data['dtpvar'][ip]
+        dtsvar = event_pair_data['dtsvar'][ip]
+
         dtp_dm = dtp - dtp.mean()
         dts_dm = dts - dts.mean()
         pvar = dtpvar + np.power(1/dtp.size,2)*np.sum(dtpvar)  # Variance on de-meaned P arrival time delays
@@ -245,7 +254,7 @@ def _build_matrices_for_inversion(df,
                     mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m)
        
             idx += n12
-            bar.update(idx, title='Including delays')
+            bar.update(idx, title='Adding delays to matrices G and d... ')
     ndel = len(d_indx)
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
 
@@ -255,7 +264,7 @@ def _build_matrices_for_inversion(df,
         d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
         dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)
         nsta = len(stations_used)
-        bar = ProgressBar(nsta, title=f'Including station-wise closure relations')
+        bar = ProgressBar(nsta, title=f'Adding closure relations... ')
         for k in range(nsta):
             j = np.where(d_indx_wo_zeros[:, 2] == k)[0]
             # Extract unique list of events belonging to pairs recorded by station k:

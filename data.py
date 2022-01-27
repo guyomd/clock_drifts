@@ -13,6 +13,7 @@ class DataManager(object):
         self.stations = None
         self.evtnames = None
         self.evtdates = None
+        self.event_pair_data = None
 
     def load(self):
         print(f'>> Load data from file: {self.filename}')
@@ -29,6 +30,35 @@ class DataManager(object):
                 verbose=self.verbose)
         else:
             raise ValueError(f'Unrecognized data type : {self.datatype}')
+
+
+    def _get_event_pair_data(self, min_sta_per_pair):
+        """ 
+        Loop over all event pairs and returns P & S arrival time delays for 
+        all pairs matching (i) event names and (ii) minimum number of common
+        stations recording each pair
+        """
+        self.event_pair_data = {'name1': [],
+                                'name2': [],
+                                'stations': [],
+                                'dtp': [],
+                                'dts': [],
+                                'dtpvar': [],
+                                'dtsvar': [], 
+                                'total_counts': 0}
+        for n1, n2, sta, dtp, dts, dtpv, dtsv in _iter_over_event_pairs(self.delays, 
+                                                                        self.evtnames, 
+                                                                        min_sta_per_pair):
+            self.event_pair_data['name1'].append(n1)
+            self.event_pair_data['name2'].append(n2)
+            self.event_pair_data['stations'].append(sta)
+            self.event_pair_data['dtp'].append(dtp)
+            self.event_pair_data['dts'].append(dts)
+            self.event_pair_data['dtpvar'].append(dtpv)
+            self.event_pair_data['dtsvar'].append(dtsv)
+            self.event_pair_data['total_counts'] += len(dtp)
+    
+
 
     def load_dates_from_file(self, eventfile, delim=';'):
         """
@@ -51,13 +81,12 @@ class DataManager(object):
         )
         #events['dates'].astype(float)
         if (self.evtnames is None):
-            print('Event names have not been initiated in this instance. '+
-                  f'Load dates for all events in file "{eventfile}".')
+            print('   Event names not previously initiated. '+
+                  f'  Load dates for all events in "{eventfile}".')
             # Load all event names and dates from file:
             self.evtnames = events['id'].tolist()
             self.evtdates = events['dates'].values
         else:
-            print(f'Load dates for {len(self.evtnames)} events')
             # Load only dates for events listed in evtnames:
             self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
         return self.evtdates
@@ -70,14 +99,15 @@ class DataManager(object):
         return self.stations
 
 
-    def count_stations_per_pair(self, min_sta_per_evt=2, min_sta_per_pair=0):
+    def count_stations_per_pair(self, min_sta_per_pair=None):
+        if self.event_pair_data is None:
+            if (min_sta_per_pair is None) or (min_sta_per_pair < 0):
+                raise ValueError('Please specify an (integer positive) value for parameter "min_sta_per_pair"')
+            self._get_event_pair_data(min_sta_per_pair)
+
         if self.stations is not None:
             num_records, sta_records = \
-                _count_stations_per_pair(
-                    self.delays,
-                    self.stations,
-                    min_sta_per_evt=min_sta_per_evt,
-                    min_sta_per_pair=min_sta_per_pair)
+                _count_stations_per_pair(self.event_pair_data, self.stations)
         else:
             raise ValueError("Stations list should be initialized first. Try self.list_stations() method.")
         return num_records, sta_records
@@ -85,6 +115,7 @@ class DataManager(object):
 
     def count_records_per_station(self):
         records = dict()
+        print(f'number of records per station:')
         for _, row in self.delays.iterrows():
             sta = row['station']
             if sta in records.keys():
@@ -266,19 +297,18 @@ def _list_available_stations(df, verbose=False):
     sta_sorted = np.sort(list_sta).tolist()
     if verbose:
         nsta = len(sta_sorted)
-        print(f'List of stations available ({nsta}):\n{sta_sorted}')
+        print(f'   {nsta} stations available in the dataset:\n   {sta_sorted}')
     return sta_sorted
 
 
-def _count_stations_per_pair(df, stations, min_sta_per_evt=2,
-                            min_sta_per_pair=0):
+def _count_stations_per_pair(event_pair_data, stations):
     evtnames = np.unique(
         np.append(pd.unique(df['evt1']).values,
                   pd.unique(df['evt1']).values)
     )
 
     nevt = len(evtnames)
-    print(f'{len(evtnames)} events have at least {min_sta_per_evt} records')
+    print(f'   {len(evtnames)} events have at least {min_sta_per_evt} records')
 
     # Initialize  matrix of station counts per event pair:
     num_records = np.zeros((nevt, nevt))
@@ -286,9 +316,13 @@ def _count_stations_per_pair(df, stations, min_sta_per_evt=2,
                    for s in stations}
 
     # Count station for each pair:
-    for evt1, evt2, stations4pair, dtp, dts, _, _ in iter_over_event_pairs(df,
-                                                                           evtnames,
-                                                                           min_sta_per_pair):
+    for ip in range(len(event_pair_data['name1'])):
+        evt1 = event_pair_data['name1'][ip]
+        evt2 = event_pair_data['name2'][ip]
+        stations4pair = event_pair_data['stations'][ip]
+        dtp = event_pair_data['dtp'][ip]
+        dts = event_pair_data['dts'][ip]
+
         ie_1 = evtnames.index(evt1)
         ie_2 = evtnames.index(evt2)
         ns = len(stations4pair)
@@ -349,23 +383,6 @@ def _get_dates_from_pickings(df, min_sta_per_evt=0):
                          if len(subdf) >= min_sta_per_evt])
     return evtdates
 
-
-def _count_tt_delay_pairs(df, evtnames, min_sta_per_pair):
-    """
-        Count the number of joint P & S arrival-time delay pairs in the dataset
-        for pairs matching the minimum number of station per pair.
-
-        :param df: Dataframe of P & S arrival time delays, as loaded using load_data() function
-        :param evtnames: List of event names of interest
-        :param min_sta_per_pair: Minimum number of stations with P and S delays per event pair
-        :return: count: integer
-        """
-    count = 0
-    for evt1, evt2, stations, dtp, dts, _, _ in _iter_over_event_pairs(df,
-                                                                evtnames,
-                                                                min_sta_per_pair):
-        count += len(dtp)
-    return count
 
 def _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
     """
