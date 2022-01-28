@@ -188,8 +188,11 @@ def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=
       followed by
           (i12*pol12, i23*pol23, i31*pol31) for each triplet
     """
+    # Filter delay table on event names:
+    delays = delays[ delays['evt1'].isin(evtnames) & delays['evt2'].isin(evtnames) ]
+    # Filter delay table on minimum number of stations per pair:
     pairs = delays.groupby(['evt1', 'evt2']) \
-                  .filter(lambda x: len(x) > min_sta_per_pair)  # Pandas.DataFrame instance
+                  .filter(lambda x: (len(x) > min_sta_per_pair))  # Pandas.DataFrame instance
     nm = len(pairs) 
     print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {nm}')
     bar = ProgressBar(nm)
