@@ -21,9 +21,10 @@ def run(datafile, datatype, eventfile, vpvsratio,
     # Load data:
     dm = data.DataManager(datafile, 
                           datatype, 
+                          eventfile,
                           min_sta_per_evt=min_sta_per_evt, 
                           min_sta_per_pair=min_sta_per_pair)
-    dm.load()
+
     print(f'>> Raw data analysis (file "{datafile}"):')
     dm.count_records_per_station()
 
@@ -33,10 +34,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
     print(f'   Reference stations (i.e. no drift):\n   {reference_stations}')
 
 
-    print(f">> Identify events with at least {min_sta_per_evt} records")
-    evtnames = dm.get_events_with_records()
-    evtdates = dm.load_dates_from_file(eventfile)
-    print(f'   {len(evtnames)} events ({len(evtdates)} dates) matching this criterion')
+    print(f'   {len(dm.evtnames)} events ({len(dm.evtdates)} dates) matching this criterion')
 
     cde = lib.ClockDriftEstimator(dm)
     drifts = cde.run(vpvsratio, 

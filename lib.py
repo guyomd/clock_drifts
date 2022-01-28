@@ -28,10 +28,17 @@ class ClockDriftEstimator(object):
     def _build_inputs_for_inversion(self, vpvsratio, reference_stations,
                                       add_closure_triplets=True):
 
-        if (self.dm.delays is not None) \
-            and (self.dm.evtnames is not None) \
-            and (self.dm.stations is not None):
-            self.G, self.d, self.d_indx, self.Cd, self.Cm, self.ndel = \
+        if self.dm.stations is None:
+            print('!! Missing list of stations. Loading stations...')
+            self.dm.list_stations()
+        if self.dm.evtnames is None:
+            print('!! Missing event names. Loading events...')
+            self.dm.load_events()
+        if self.dm.delays is None:
+            print('!! Missing delays (!). Loading data...')
+            self.dm.load_data()
+
+        self.G, self.d, self.d_indx, self.Cd, self.Cm, self.ndel = \
                 _build_matrices(self.dm.delays,
                                 self.dm.evtnames,
                                 self.dm.stations,
@@ -39,9 +46,7 @@ class ClockDriftEstimator(object):
                                 min_sta_per_pair=self.dm.min_sta_per_pair,
                                 stations_wo_error=reference_stations,
                                 add_closure_triplets=add_closure_triplets)
-        else:
-            raise ValueError('Missing at least one of the these quantities in DataManager instance: '+
-                             'delays, evtnames or stations.')
+
 
     def _solve_least_squares(self):
         if (self.G is not None) \

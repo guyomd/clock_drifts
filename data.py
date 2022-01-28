@@ -4,9 +4,10 @@ import numpy as np
 _QUASI_ZERO = 1E-6
 
 class DataManager(object):
-    def __init__(self, filename, datatype, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
+    def __init__(self, filename, datatype, eventfile=None, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
         self.filename = filename
         self.datatype = datatype
+        self.eventfile = eventfile  # optional, can be avoided when datatype=='pickings'
         self.verbose = verbose
         self.delays = None
         self.picks = None
@@ -16,7 +17,13 @@ class DataManager(object):
         self.min_sta_per_evt = min_sta_per_evt
         self.min_sta_per_pair = min_sta_per_pair
 
-    def load(self):
+        self.load_data()
+        self.load_events()
+        self.load_dates()
+        self.list_stations()
+
+
+    def load_data(self):
         print(f'>> Load data from file: {self.filename}')
 
         if self.datatype == "delays":
@@ -33,8 +40,41 @@ class DataManager(object):
             raise ValueError(f'Unrecognized data type : {self.datatype}')
 
 
+    def load_events(self):
+        print('>> Load event names')
+        if self.datatype == 'pickings':
+            self.evtnames = _get_event_names_in_pickings(self.picks, min_sta_per_evt=self.min_sta_per_evt)
+        elif self.datatype == 'delays':
+            self.evtnames = _get_event_names_in_delays(self.delays, min_sta_per_evt=self.min_sta_per_evt)
+        else:
+            raise ValueError(f'Unrecognized data type: {iself.datatype}')
+        return self.evtnames
 
-    def load_dates_from_file(self, eventfile, delim=';'):
+
+    def load_dates(self):
+        """
+        Load event dates
+        """
+        if self.eventfile is None:
+            if self.datatype == "pickings":
+                print('>> Load event dates from pickings')
+                self.evtdates = self._load_dates_from_pickings()
+            elif self.datatype == "delays":
+                raise ValueError('Please specify path to an event-date file in data.DataManager(..., eventfile=path, ...) instance')
+        else:
+            print(f'>> Load event dates from file "{self.eventfile}"')
+            self.evtdates = self._load_dates_from_file()
+
+
+    def _load_dates_from_pickings(self):
+        if self.picks is not None:
+            self.evtdates = _get_dates_from_pickings(self.picks, min_sta_per_evt=self.min_sta_per_evt)
+        else:
+            raise ValueError('Error. Input data was not loaded as arrival times.')
+        return self.evtdates
+
+
+    def _load_dates_from_file(self, delim=';'):
         """
         Load event dates, and eventually event names from a CSV formatted as below:
 
@@ -48,12 +88,11 @@ class DataManager(object):
         :returns dates: iterable list of event dates
         """
         events = pd.read_csv(
-            eventfile,
+            self.eventfile,
             delimiter=delim,
             skipinitialspace=True,
             usecols=['id', 'dates']
         )
-        #events['dates'].astype(float)
         if (self.evtnames is None):
             print('   Event names not previously initiated. '+
                   f'  Load dates for all events in "{eventfile}".')
@@ -66,19 +105,15 @@ class DataManager(object):
         return self.evtdates
 
 
-    def list_all_stations(self, verbose=True):
-        self.stations = _list_available_stations(
-            self.delays,
-            verbose=verbose)
+    def list_stations(self, verbose=True):
+        self.stations = _list_available_stations(self.delays, verbose=verbose)
         return self.stations
 
 
     def count_stations_per_pair(self):
-        if self.stations is not None:
-            num_records, sta_records = \
-                _count_stations_per_pair(self.delays, self.stations)
-        else:
-            raise ValueError("Stations list should be initialized first. Try self.list_stations() method.")
+        if self.stations is None:
+            self.stations = list_stations()
+        num_records, sta_records = _count_stations_per_pair(self.delays, self.stations)
         return num_records, sta_records
 
 
@@ -92,29 +127,6 @@ class DataManager(object):
             print(f'{sta}: {len(records[sta])}')
         return records
 
-
-    def get_events_with_records(self):
-        if self.datatype == 'pickings':
-            self.evtnames = _get_event_names_in_pickings(
-                    self.picks,
-                    min_sta_per_evt=self.min_sta_per_evt)
-        elif self.datatype == 'delays':
-            self.evtnames = _get_event_names_in_delays(
-                    self.delays,
-                    min_sta_per_evt=self.min_sta_per_evt)
-        else:
-            raise ValueError(f'Unrecognized data type: {iself.datatype}')
-        return self.evtnames
-
-
-    def get_dates_from_pickings(self):
-        if self.picks is not None:
-            self.evtdates = _get_dates_from_pickings(
-                self.picks,
-                min_sta_per_evt=self.min_sta_per_evt)
-        else:
-            raise ValueError('Error. Input data was not loaded as arrival times.')
-        return self.evtdates
 
 
 # Functions:
@@ -165,14 +177,14 @@ def _load_data(filename, datatype='delays', verbose=False):
     """
     if datatype == 'delays':
         df = _load_delays(filename, verbose=verbose)
-        return df[ (df['dtP'] > 0.0) & (df['dtS'] > 0.0) ]
+        return df[ (df['dtP'].abs() > 0.0) & (df['dtS'].abs() > 0.0) ]
 
     elif datatype == 'pickings':
         p = _load_pickings(filename, verbose=verbose)
         if verbose:
             print('  Compoute inter-event arrival-time delays')
         df = _pickings2delays(p)
-        return df[ (df['dtP'] > 0.0) & (df['dtS'] > 0.0) ], p
+        return df[ (df['dtP'].abs() > 0.0) & (df['dtS'].abs() > 0.0) ], p
     
     else:
         raise ValueError(f'Unrecognized type of input data: "{datatype}"')
@@ -216,12 +228,12 @@ def _pickings2delays(df):
                     j2 = indexes2[j2]
                     # Check if pickings are available:
                     p_arr = [
-                        np.bool(df.loc[j1, 'tP'] > 0),
-                        np.bool(df.loc[j2, 'tP'] > 0),
+                        np.bool(df.loc[j1, 'tP'] != 0.0),
+                        np.bool(df.loc[j2, 'tP'] != 0.0),
                     ]
                     s_arr = [
-                        np.bool(df.loc[j1, 'tS'] > 0),
-                        np.bool(df.loc[j2, 'tS'] > 0)
+                        np.bool(df.loc[j1, 'tS'] != 0.0),
+                        np.bool(df.loc[j2, 'tS'] != 0.0)
                     ]
                     if np.all(p_arr) or np.all(s_arr):
                         delays['evt1'].append(name1)
