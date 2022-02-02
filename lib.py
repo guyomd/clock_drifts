@@ -44,7 +44,7 @@ class ClockDriftEstimator(object):
                                 self.dm.stations,
                                 vpvsratio,
                                 min_sta_per_pair=self.dm.min_sta_per_pair,
-                                stations_wo_error=reference_stations,
+                                stations_wo_drift=reference_stations,
                                 add_closure_triplets=add_closure_triplets)
 
 
@@ -102,6 +102,7 @@ class ClockDriftEstimator(object):
             print(f'         (including closure triplets)')
         else:
             print(f'         (closure triplets not included)')
+        self.dm.filter_delays_on_evtnames()
         self._build_inputs_for_inversion(
             vpvsratio,
             reference_stations,
@@ -163,19 +164,22 @@ def _inverse(m: np.ndarray):
         minv = np.linalg.pinv(m)
     return minv
 
-def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=2,
-                    verbose=False, stations_wo_error=[], add_closure_triplets=True):
+def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
+                    verbose=False, stations_wo_drift=[], add_closure_triplets=True):
     """
     :param delays: Pandas.DataFrame, as formatted by load_data() method
     :param evtnames: list of event (names) used in the inversion
     :param stations_used: list of stations used in the inversion
     :param vpvsratio: float, vp/vs ratio
+    :param station_records: dict, list of event recordings for each station (keys)
     :param min_sta_per_pair: int, minimum number of stations per event pair
     :param verbose: boolean, set verbosity
-    :param stations_wo_error: list of stations forced to have no timing errors
+    :param stations_wo_drift: list of stations forced to have no timing errors
     :param add_closure_triplets: boolean, Flag specifying whether closure triplets should be appended to G.
     :return:
     """
+    if min_sta_per_pair < 2:
+        raise ValueError('Minimum number of stations per event pair cannot be smaller than 2')
     d = []
     dcov = []
     vardt = []
@@ -188,17 +192,30 @@ def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=
       followed by
           (i12*pol12, i23*pol23, i31*pol31) for each triplet
     """
-    # Filter delay table on event names:
-    delays = delays[ delays['evt1'].isin(evtnames) & delays['evt2'].isin(evtnames) ]
+    # Count stations:
+    ns = len(stations_records)
+    stations = list(stations_records.keys())
+
+    # Count events:
+    neps = []
+    evtlist = []
+    for v in stations_records.values():
+        neps.append(len(v))
+        evtlist += v
+    evtlist = list(set(evtlist))  # Keep unique occurrences
+    ne = len(evtlist)
+    nt = sum(neps)  # Total number of clock-drift time occurrences
+
     # Filter delay table on minimum number of stations per pair:
     pairs = delays.groupby(['evt1', 'evt2']) \
                   .filter(lambda x: (len(x) > min_sta_per_pair))  # Pandas.DataFrame instance
-    nm = len(pairs) 
+    nm = len(pairs)
     print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {nm}')
     bar = ProgressBar(nm)
     mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
-    idx = 0
-    # For each event pair at each station, add a line in d and G:
+    del_cnt = 0
+
+    # For each event-pair arrival-time delay (at a single station), add a line in d and G:
     for grp_name, grp in pairs.groupby(['evt1', 'evt2']):
         evt1, evt2 = grp_name
         dtp_dm = (grp['dtP']-grp['dtP'].mean()).values
@@ -208,11 +225,11 @@ def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=
         n12 = len(grp['dtP'])  # Number of delays for the current pair: (evt1, evt2)
         pvar = (grp['dtPvar'] + grp['dtPvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned P arrival time delays
         svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned S arrival time delays
-        nex = len([s for s in grp['station'] if s in stations_wo_error])
+        nex = len([s for s in grp['station'] if s in stations_wo_drift])
 
-        ie1 = evtnames.index(evt1)
-        ie2 = evtnames.index(evt2)
-        ista = [stations_used.index(s) for s in grp['station']]
+        ie1 = evtlist.index(evt1)
+        ie2 = evtlist.index(evt2)
+        ista = [stations.index(s) for s in grp['station']]
         ns = len(ista)
 
         for k in range(ns):
@@ -223,24 +240,32 @@ def _build_matrices(delays, evtnames,stations_used, vpvsratio, min_sta_per_pair=
             d_indx.append((ie1, ie2, ista[k]))
 
             # Buildup G:
-            g_line = np.zeros((nm,))
-            g_line[idx + k] = 1
+            g_line = np.zeros((nt,))
+            ix = sum(neps[:ista[k]])
+            ix1 = ix + station_records[stations[ista[k]]].index(evt1)
+            ix2 = ix + station_records[stations[ista[k]]].index(evt2)
+            g_line[ix1] = 1 - 1 / n12
+            g_line[ix2] = - (1 - 1 / n12)
             # De-meaned timing error: remove average timing error for all observations of this event pair
-            g_line[idx:(idx + n12)] -= 1 / n12
+            ## g_line[idx:(idx + n12)] -= 1 / n12
             g.append(g_line)
 
             # Eventually, add constraint on stations forced to have zero timing errors (+/- picking errors):
-            if stations_used[k] in stations_wo_error:
+            if stations_used[k] in stations_wo_drift:
                 d.append(0.0)
                 dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
                 d_indx.append((-9, -9, -9))  # Add flag to delays forced to 0
-                g_line = np.zeros((nm,))
-                g_line[idx + k] = 1
+                g_line = np.zeros((nt,))
+                g_line[ix1] = 1
+                g_line[ix2] = -1
                 g.append(g_line)
-                mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m)
+                mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m) --> Useful ?
           
-        idx += n12
-        bar.update(idx, title='Adding delays to matrices G and d... ')
+        del_cnt += n12
+        bar.update(del_cnt, title='Filling matrices G and d... ')
+
+    # TODO: Add constraint on first clock drift value for each station
+
     ndel = len(d_indx)
     d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
 

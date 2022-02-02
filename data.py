@@ -118,14 +118,23 @@ class DataManager(object):
 
 
     def count_records_per_station(self):
-        records = dict()
+        self.records = dict()
         print(f'number of records per station:')
         for sta, grp in self.delays.groupby('station'):
             uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
-            records.update({sta: uniq_evts})
+            self.records.update({sta: uniq_evts})
         for sta in records.keys():
-            print(f'{sta}: {len(records[sta])}')
-        return records
+            print(f'{sta}: {len(self.records[sta])}')
+
+
+    def filter_delays_on_evtnames(self):
+        """
+         Filter delay table on event names:
+         :param evtnames: list, event names to keep in the delay table
+        """
+        if self.evtnames is None:
+            self.load_events()
+        self.delays = self.delays[self.delays['evt1'].isin(self.evtnames) & self.delays['evt2'].isin(self.evtnames)]
 
 
 
