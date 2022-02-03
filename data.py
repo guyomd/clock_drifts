@@ -124,7 +124,7 @@ class DataManager(object):
             uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
             uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]
             self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
-        for sta in records.keys():
+        for sta in self.records.keys():
             print(f'{sta}: {len(self.records[sta]["evts"])}')
 
 
