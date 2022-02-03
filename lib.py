@@ -126,7 +126,7 @@ class ClockDriftEstimator(object):
             reference_stations)
         print(f'\n>> [2/4] Run least-squares inversion')
         self._solve_least_squares()
-        print(f'\n>> [/4] Compute residuals')
+        print(f'\n>> [3/4] Compute residuals')
         self._compute_residuals()
         print(f'         sum of square residuals: {self.sqres}')
         print(f'         root mean square: {self.rms}')
