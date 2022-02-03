@@ -190,8 +190,6 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
                     verbose=False, stations_wo_drift=[], add_closure_triplets=True):
     """
     :param delays: Pandas.DataFrame, as formatted by load_data() method
-    :param evtnames: list of event (names) used in the inversion
-    :param stations_used: list of stations used in the inversion
     :param vpvsratio: float, vp/vs ratio
     :param station_records: dict, list of event recordings for each station (keys)
     :param min_sta_per_pair: int, minimum number of stations per event pair
@@ -207,13 +205,13 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     dcov = []
     g = []
    # Count stations:
-    ns = len(stations_records)
-    stations = list(stations_records.keys())
+    ns = len(station_records)
+    stations = list(station_records.keys())
 
     # Count events:
     neps = []
     evtlist = []
-    for d in stations_records.values():
+    for d in station_records.values():
         neps.append(len(d['evts']))
         evtlist += d['evts']
     nt = sum(neps)  # Total number of clock-drift time occurrences
