@@ -73,7 +73,7 @@ class ClockDriftEstimator(object):
         """
         if (self.m is None) or (self.Cm is None):
             raise ValueError('Least squares inversion must be solved before caliing this method')
-        ns = len(self.dm.reocrds)
+        ns = len(self.dm.records)
         stations = list(self.dm.records.keys())
         neps = []
         evtlist = []
@@ -86,16 +86,15 @@ class ClockDriftEstimator(object):
             ix = sum(neps[:ista])
             it = np.argsort(self.dm.records[s]['dates'])
 
-            utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(ts))
-                                 for ts in self.dm.records[s]['dates'][it]
-                                 ])
-            subcm = self.cm(np.ix_(ix + it, ix + it))
+            utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(self.dm.records[s]['dates'][i]))
+                                 for i in it])
+            subcm = self.Cm[np.ix_(ix + it, ix + it)]
             assert subcm.shape[0] == len(ix + it)
             assert subcm.shape[1] == len(ix + it)
-            self.drifts.update({staname: {'T_UTC_in_s': self.dm.records[s]['dates'][it],
-                                        'delay_in_s': self.m[ix + it],
-                                        'std_in_s': np.sqrt(np.diag(subcm)),
-                                        'T_UTC': utcdates}})
+            self.drifts.update({s: {'T_UTC_in_s': np.array([self.dm.records[s]['dates'][i] for i in it]),
+                                    'delay_in_s': self.m[ix + it],
+                                    'std_in_s': np.sqrt(np.diag(subcm)),
+                                    'T_UTC': utcdates}})
 
 
     def _compute_residuals(self):
@@ -119,24 +118,20 @@ class ClockDriftEstimator(object):
         _write_timing_errors(outdir, self.dm.stations, self.drifts)
         _write_residuals(outdir, self.rms, self.sqres)
 
-    def run(self, vpvsratio, reference_stations, add_closure_triplets=True):
+    def run(self, vpvsratio, reference_stations):
         print(f'\n>> [1/4] Build matrices for inversion')
-        if add_closure_triplets:
-            print(f'         (including closure triplets)')
-        else:
-            print(f'         (closure triplets not included)')
         self.dm.filter_delays_on_evtnames()
         self._build_inputs_for_inversion(
             vpvsratio,
-            reference_stations,
-            add_closure_triplets=add_closure_triplets)
+            reference_stations)
         print(f'\n>> [2/4] Run least-squares inversion')
-        self._convert_m_to_histories()
+        self._solve_least_squares()
         print(f'\n>> [/4] Compute residuals')
         self._compute_residuals()
         print(f'         sum of square residuals: {self.sqres}')
         print(f'         root mean square: {self.rms}')
-        print(f'\n>> [4/4] Convert relative delays to clock drift histories')
+        print(f'\n>> [4/4] Reformat clock drift histories')
+        self._convert_m_to_histories()
         return self.drifts  # Return clock drift histories as Python dict
 
 
@@ -210,10 +205,8 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
 
     # Count events:
     neps = []
-    evtlist = []
-    for d in station_records.values():
-        neps.append(len(d['evts']))
-        evtlist += d['evts']
+    for rec in station_records.values():
+        neps.append(len(rec['evts']))
     nt = sum(neps)  # Total number of clock-drift time occurrences
 
     # Filter delay table on minimum number of stations per pair:
@@ -248,15 +241,15 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
             # Buildup G:
             g_line = np.zeros((nt,))
             ix = sum(neps[:ista[k]])
-            ix1 = ix + station_records[stations[ista[k]]]['evts'].index(evt1)
-            ix2 = ix + station_records[stations[ista[k]]]['evts'].index(evt2)
+            ix1 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt1)[0]
+            ix2 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt2)[0]
             g_line[ix1] = 1 - 1 / n12
             g_line[ix2] = - (1 - 1 / n12)
             # De-meaned timing error: remove average timing error for all other stations recording this event pair:
             for k2 in (j for j in range(ns) if j!=k):
                 iy = sum(neps[:ista[k2]])
-                iy1 = iy + station_records[stations[ista[k2]]]['evts'].index(evt1)
-                iy2 = iy + station_records[stations[ista[k2]]]['evts'].index(evt2)
+                iy1 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt1)[0]
+                iy2 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt2)[0]
                 g_line[iy1] = -1 / n12
                 g_line[iy2] = 1 / n12
             g.append(g_line)
@@ -290,7 +283,7 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     Cm = np.diag(mcov)
     print(f'Dimensions of array d: {d.shape}')
     print(f'Dimensions of matrix G: {g.shape}')
-    return g, d, Cd, Cm, ndel
+    return g, d, Cd, Cm, del_cnt
 
 
 def _solve_least_squares(G, d, Cd, Cm):

@@ -38,8 +38,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
     cde = lib.ClockDriftEstimator(dm)
     drifts = cde.run(vpvsratio, 
-                     reference_stations, 
-                     add_closure_triplets=add_closure_relation)
+                     reference_stations) 
     
     if make_plots:
         # Display relative timing errors:
@@ -75,7 +74,6 @@ def run(datafile, datatype, eventfile, vpvsratio,
                   'evtdates': dm.evtdates,
                   'm': cde.m,
                   'd': cde.d,
-                  'd_indx': cde.d_indx,
                   'sum_sq_res': cde.sqres,
                   'rms': cde.rms
                  }
