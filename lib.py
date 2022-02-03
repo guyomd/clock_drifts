@@ -38,11 +38,10 @@ class ClockDriftEstimator(object):
             print('!! Missing delays (!). Loading data...')
             self.dm.load_data()
 
-        self.G, self.d, self.d_indx, self.Cd, self.Cm, self.ndel = \
+        self.G, self.d, self.Cd, self.Cm, self.ndel = \
                 _build_matrices(self.dm.delays,
-                                self.dm.evtnames,
-                                self.dm.stations,
                                 vpvsratio,
+                                self.dm.records,
                                 min_sta_per_pair=self.dm.min_sta_per_pair,
                                 stations_wo_drift=reference_stations,
                                 add_closure_triplets=add_closure_triplets)
@@ -60,6 +59,44 @@ class ClockDriftEstimator(object):
                 self.Cm)
         else:
             raise ValueError('Missing at least one of the following quantities: G, d, Cd, Cm.')
+
+    def _convert_m_to_histories(self, station_records):
+        """
+        Return timing error histories from the array of pointwise, stationwise
+        clock drift estimates g
+        :param m: np.ndarray, array of pointwise, stationwise clock drift estimates, in s.
+        :param cm: np.ndarray, a-posteriori covariance matrix on m
+        :param station_records: dict, list of event recordings for each station
+
+        :return:histories, dict
+        """
+        if (self.m is None) or (self.Cm is None):
+            raise ValueError('Least squares inversion must be solved before caliing this method')
+        ns = len(stations_records)
+        stations = list(stations_records.keys())
+        neps = []
+        evtlist = []
+        for v in stations_records.values():
+            neps.append(len(v))
+
+        self.histories = dict()
+        for s in stations:
+            ista = stations.index(s)
+            ix = sum(neps[:ista])
+            it = np.argsort(station_records[s]['dates'])
+
+            utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(ts))
+                                 for ts in station_records[s]['dates'][it]
+                                 ])
+            subcm = self.cm(np.ix_(ix + it, ix + it))
+            assert subcm.shape[0] == len(ix + it)
+            assert subcm.shape[1] == len(ix + it)
+            histories.update({staname: {'T_UTC_in_s': station_records[s]['dates'][it],
+                                        'delay_in_s': self.m[ix + it],
+                                        'std_in_s': np.sqrt(np.diag(subcm)),
+                                        'T_UTC': utcdates}})
+        return histories
+
 
     def _compute_residuals(self):
         if (self.G is not None) \
@@ -108,6 +145,7 @@ class ClockDriftEstimator(object):
             reference_stations,
             add_closure_triplets=add_closure_triplets)
         print(f'\n>> [2/4] Run inversion of relative drifts')
+        self._convert_m_to_histories(m, cm, station_records)
         self._solve_least_squares()
         print(f'\n>> [3/4] Compute residuals')
         self._compute_residuals()
@@ -180,30 +218,20 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     """
     if min_sta_per_pair < 2:
         raise ValueError('Minimum number of stations per event pair cannot be smaller than 2')
+
     d = []
     dcov = []
-    vardt = []
     g = []
-    d_indx = []
-    """
-    Note:
-      d_indx: indices of each element in d
-          (ievt1, ievt2, ista) for each traveltime delay
-      followed by
-          (i12*pol12, i23*pol23, i31*pol31) for each triplet
-    """
-    # Count stations:
+   # Count stations:
     ns = len(stations_records)
     stations = list(stations_records.keys())
 
     # Count events:
     neps = []
     evtlist = []
-    for v in stations_records.values():
-        neps.append(len(v))
-        evtlist += v
-    evtlist = list(set(evtlist))  # Keep unique occurrences
-    ne = len(evtlist)
+    for d in stations_records.values():
+        neps.append(len(d['evts']))
+        evtlist += d['evts']
     nt = sum(neps)  # Total number of clock-drift time occurrences
 
     # Filter delay table on minimum number of stations per pair:
@@ -212,7 +240,7 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     nm = len(pairs)
     print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {nm}')
     bar = ProgressBar(nm)
-    mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
+    mcov = np.ones((nt,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     del_cnt = 0
 
     # For each event-pair arrival-time delay (at a single station), add a line in d and G:
@@ -227,8 +255,6 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
         svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned S arrival time delays
         nex = len([s for s in grp['station'] if s in stations_wo_drift])
 
-        ie1 = evtlist.index(evt1)
-        ie2 = evtlist.index(evt2)
         ista = [stations.index(s) for s in grp['station']]
         ns = len(ista)
 
@@ -236,93 +262,45 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
             # Add element to d (array of observations):
             d.append((dts_dm[k] - vpvsratio * dtp_dm[k]) / (1 - vpvsratio))
             dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
-            vardt.append(dtsvar[k])
-            d_indx.append((ie1, ie2, ista[k]))
 
             # Buildup G:
             g_line = np.zeros((nt,))
             ix = sum(neps[:ista[k]])
-            ix1 = ix + station_records[stations[ista[k]]].index(evt1)
-            ix2 = ix + station_records[stations[ista[k]]].index(evt2)
+            ix1 = ix + station_records[stations[ista[k]]]['evts'].index(evt1)
+            ix2 = ix + station_records[stations[ista[k]]]['evts'].index(evt2)
             g_line[ix1] = 1 - 1 / n12
             g_line[ix2] = - (1 - 1 / n12)
-            # De-meaned timing error: remove average timing error for all observations of this event pair
-            ## g_line[idx:(idx + n12)] -= 1 / n12
+            # De-meaned timing error: remove average timing error for all other stations recording this event pair:
+            for k2 in (j for j in range(ns) if j!=k):
+                iy = sum(neps[:ista[k2]])
+                iy1 = iy + station_records[stations[ista[k2]]]['evts'].index(evt1)
+                iy2 = iy + station_records[stations[ista[k2]]]['evts'].index(evt2)
+                g_line[iy1] = -1 / n12
+                g_line[iy2] = 1 / n12
             g.append(g_line)
 
             # Eventually, add constraint on stations forced to have zero timing errors (+/- picking errors):
-            if stations_used[k] in stations_wo_drift:
+            if stations[ista[k]] in stations_wo_drift:
                 d.append(0.0)
-                dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
-                d_indx.append((-9, -9, -9))  # Add flag to delays forced to 0
+                dcov.append(0.0)  # Data variance
                 g_line = np.zeros((nt,))
                 g_line[ix1] = 1
                 g_line[ix2] = -1
                 g.append(g_line)
-                mcov[idx + k] = vardt[k] # A priori variance on delay parameter (in array m) --> Useful ?
-          
+
         del_cnt += n12
         bar.update(del_cnt, title='Filling matrices G and d... ')
 
-    # TODO: Add constraint on first clock drift value for each station
-
-    ndel = len(d_indx)
-    d_indx = np.array(d_indx)  # Convert list of 1-D arrays to 2-D array
-
-    # Add closure relationship for every earthquake triplet at each station:
-    if add_closure_triplets:
-        i0 = np.where(d_indx[:, 2] == -9)[0]  # Find d_indx elements corresponding to forced zero delays
-        d_indx_wo_zeros = np.delete(d_indx, i0, axis=0)  # Copy of d_indx and dcov without lines forced to zero delays
-        dcov_indx_wo_zeros = np.delete(dcov, i0, axis=0)
-        nsta = len(stations_used)
-        bar = ProgressBar(nsta, title=f'Adding closure relations... ')
-        for k in range(nsta):
-            j = np.where(d_indx_wo_zeros[:, 2] == k)[0]
-            # Extract unique list of events belonging to pairs recorded by station k:
-            evts_indices = np.unique(d_indx_wo_zeros[j, 0:2])
-            all_triplets = list(itertools.combinations(evts_indices.tolist(), 3))
-
-            # For each triplet, add a line to G, if all delays are existing in d:
-            cnt_triplets = 0
-            for i1, i2, i3 in all_triplets:
-
-                def _find_evt_pair_index(e1, e2):
-                    ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e1,
-                                              d_indx_wo_zeros[j, 1] == e2))[0]
-                    polarity = 1
-                    if len(ind) == 0:
-                        ind = np.where(np.logical_and(d_indx_wo_zeros[j, 0] == e2,
-                                                  d_indx_wo_zeros[j, 1] == e1))[0]
-                        polarity = -1
-                    if len(ind) == 0:
-                        polarity = 0
-                        return None, polarity
-                    else:
-                        return j[ind][0], polarity  # index in g_line, delay polarity (1/-1)
-
-                i12, pol12 = _find_evt_pair_index(i1, i2)
-                i23, pol23 = _find_evt_pair_index(i2, i3)
-                i31, pol31 = _find_evt_pair_index(i3, i1)
-
-                if np.any(np.array([pol12, pol23, pol31]) == 0):
-                    continue
-
-                cnt_triplets += 1
-
-                # add line to g: (delta_12 + delta_23 + delta_31 = 0):
-                g_line = np.zeros((nm,))
-                g_line[i12] = pol12
-                g_line[i23] = pol23
-                g_line[i31] = pol31
-                g.append(g_line)
-
-                # add 0 element to d, and also to the original d_indx:
-                d.append(0.0)
-                #dcov.append(vardt[i12] + vardt[i23] + vardt[i31])  # Variance on closure relation
-                dcov.append(dcov[i12] + dcov[i23] + dcov[i31])  # Variance on closure relation
-                d_indx = np.vstack([d_indx, np.array([[i12 * pol12, i23 * pol23, i31 * pol31]])])
-
-            bar.update(k+1)
+    # Add constraint on null initial clock drift value for each station:
+    for s in stations:
+        ista = stations.index(s)
+        ix = sum(neps[:ista])
+        i0 = np.argsort(station_records[s]['dates'])[0]
+        g_line = np.zeros((nt,))
+        g_line[ix+i0] = 1
+        g.append(g_line)
+        d.append(0.0)
+        dcov.append(0.0)
 
     g = np.array(g)
     d = np.array(d)
@@ -330,31 +308,8 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     Cm = np.diag(mcov)
     print(f'Dimensions of array d: {d.shape}')
     print(f'Dimensions of matrix G: {g.shape}')
-    return g, d, d_indx, Cd, Cm, ndel
+    return g, d, Cd, Cm, ndel
 
-"""
-def _solve_least_squares(G, d, Cd, Cm):
-    ""
-    Solves for m in the least squares problem "G.m = d", where Cd is the covariance matrix on d.
-    :param G: matrix with NxM elements
-    :param d: matrix with Nx1 elements: input data
-    :param Cd: data covariance matrix, with NxN elements
-    :return: m: solution array, with Mx1 elements
-    ""
-    Gt = G.transpose()
-    k = G @ Cm @ Gt + Cd
-    kinv = _inverse(k)
-    u = Gt @ kinv
-    Ginv = Cm @ u  #  Nowack & Lutter, 1988 (eqn. 1b)
-    # Maximum-likelihood solution:
-    m = Ginv @ d
-    # Resolution matrix:
-    R = Ginv @ G
-    Rcomp = np.eye(R.shape[0])-R
-    # Compute a posteriori covariance on parameters (Nowack & Lutter, 1988: eqn. 8)
-    Cm_post = Ginv @ Cd @ Ginv.transpose() + Rcomp @ Cm @ Rcomp.transpose()
-    return m, Cm_post
-"""
 
 def _solve_least_squares(G, d, Cd, Cm):
     """
@@ -388,201 +343,6 @@ def _compute_residuals(G,d,m):
     """
     sq = np.power(G@m - d,2)
     return np.sum(sq), np.sqrt(np.mean(sq))
-
-
-def _m_to_station_error_matrix(m, d_indx, stations, nevt):
-    tau = dict()
-    # Remove elements of d_indx associated with fixed zero-delays:
-    i0 = np.where(d_indx[:, 2] == -9)[0]
-    d_indx_copy = np.delete(d_indx, i0, axis=0)
-    for i in range(len(stations)):
-        staname = stations[i]
-        idat = np.where(d_indx_copy[:, 2] == i)[0]
-        tau.update({staname: np.zeros((nevt, nevt))})
-        for k in idat:
-            # t1 - t2:
-            tau[staname][d_indx_copy[k, 0], d_indx_copy[k, 1]] = m[k]
-            # Opposite sign for t2-t1:
-            tau[staname][d_indx_copy[k, 1], d_indx_copy[k, 0]] = -m[k]
-    return tau
-
-
-def _pairwise_delays_to_histories(dt, d_indx, stations, nm, evtdates, Cd):
-    """
-    Return timing error histories from inter-event pairwise timing delays, by
-    solving the least squares problem station-wise.
-    :param dt: Inter-event station timing delays, in s.
-    :param d_indx:
-    :param stations: list of stations
-    :param nm:
-    :param evtdates: list of event dates formatted as ...
-    :param Cd: np.ndarray, Data covariance matrix
-    :return:histories, dict
-    """
-    histories = dict()
-    # Remove elements of d_indx associated with fixed zero-delays:
-    i0 = np.where(d_indx[:, 2] == -9)[0]
-    d_indx_copy = np.delete(d_indx, i0, axis=0)
-    assert d_indx_copy.shape[0] == Cd.shape[0]
-    for i in range(len(stations)):
-        idt = list()
-        Gsta = []
-        dsta = []
-        staname = stations[i]
-        # indices of all inter-event timing delays associated with the current station index:
-        idat = np.where(d_indx_copy[:, 2] == i)[0]
-        for k in idat:
-            i1 = d_indx_copy[k, 0]  # index of event 1
-            i2 = d_indx_copy[k, 1]  # index of event 2
-            G_line = np.zeros((nm,))  # time-history sampled at each event occurrence time
-                                        # (i.e. NM time samples)
-            G_line[i1] = 1
-            G_line[i2] = -1
-            Gsta.append(G_line)
-            dsta.append(dt[k])
-            idt.append(k)
-
-        # Initialize starting conditions:
-        mcov = np.ones((nm,))/_QUASI_ZERO # Unconstrained (i.e. "infinite") a priori variance
-        G_line = np.zeros((nm,))
-        G_line[0] = 1
-        Gsta.append(G_line)
-        dsta.append(0.0)
-        #mcov[0] = 0.0
-        mcov[0] = _QUASI_ZERO
-        # Build covariance matrix:
-        dcov = np.zeros((len(idt) + 1, len(idt) + 1))
-        for j1 in range(len(idt)):
-            for j2 in range(j1, len(idt)):
-                dcov[j1, j2] = Cd[j1, j2]
-                if j1 != j2:
-                    dcov[j2, j1] = Cd[j1, j2]
-        dcov[-1, -1] = np.max(0.5*np.diag(Cd[:-1, :-1]))  # variance for the initial condition
-        # Remove Gsta columns with only 0's:
-        Gsta = np.array(Gsta)
-        dsta = np.array(dsta)
-        used_cols = np.any(Gsta != 0, axis=0)  # [i for i in range(Gsta.shape[1])] #
-        Cm = np.diag(mcov[used_cols])
-        timing_error, timing_cov = _solve_least_squares(Gsta[:, used_cols], dsta, dcov, Cm)
-        utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(ts))
-                             for ts in evtdates[used_cols]
-                             ])
-        histories.update({staname: {'T_UTC_in_s': evtdates[used_cols],
-                                    'delay_in_s': timing_error,
-                                    'std_in_s': np.sqrt(np.diag(timing_cov)),
-                                    'T_UTC': utcdates}})
-
-    return histories
-
-
-# def _pairwise_delays_to_histories(dt, d_indx, stations, nevt, evtdates, Cd):
-#     """
-#     Return timing error histories from inter-event pairwise timing delays, by
-#     solving the least squares problem.
-#     :param dt: Inter-event station timing delays, in s.
-#     :param d_indx:
-#     :param stations:
-#     :param nevt:
-#     :param evtdates:
-#     :param Cd: np.ndarray, Data covariance matrix
-#     :return:
-#     """
-#     histories = dict()
-#     # Remove elements of d_indx associated with fixed zero-delays:
-#     i0 = np.where(d_indx[:, 2] == -9)[0]
-#     d_indx_copy = np.delete(d_indx, i0, axis=0)
-#     assert d_indx_copy.shape[0] == Cd.shape[0]
-#
-#     idt = list()
-#     Gsta = []
-#     dsta = []
-#     nsta = len(stations)
-#     ista = np.array([])
-#     for i in range(nsta):
-#         ista = np.hstack((ista, i*np.ones(nevt,)))
-#         # indices of all inter-event timing delays associated with the current station index:
-#         idel = np.where(d_indx_copy[:, 2] == i)[0]
-#         for k in idel:
-#             i1 = d_indx_copy[k, 0]  # index of event 1
-#             i2 = d_indx_copy[k, 1]  # index of event 2
-#             G_line = np.zeros((nevt*nsta,))  # time-history sampled at each event occurrence time
-#                                              # (i.e. NEVT time samples)
-#             G_line[(i*nsta)+i1] = 1
-#             G_line[(i*nsta)+i2] = -1
-#             Gsta.append(G_line)
-#             dsta.append(dt[k])
-#             idt.append(k)
-#
-#     # Initialize starting conditions:
-#     for i in range(nsta):
-#         G_line = np.zeros((nevt*nsta,))
-#         G_line[i*nsta] = 1
-#         Gsta.append(G_line)
-#         dsta.append(0.0)
-#
-#     # Build delay covariance matrix:
-#     ndt = len(idt)
-#     dcov = np.zeros((ndt + nsta, ndt + nsta))
-#     for j1 in range(ndt):
-#         for j2 in range(j1, ndt):
-#             dcov[j1, j2] = Cd[j1, j2]
-#             if j1 != j2:
-#                 dcov[j2, j1] = Cd[j1, j2]
-#     for i in range(nsta):
-#         dcov[ndt+i, ndt+i] = (_QUASI_ZERO)  # approx. zero variance for the initial condition
-#
-#     # Remove Gsta columns with only 0's:
-#     Gsta = np.array(Gsta)
-#     dsta = np.array(dsta)
-#     used_cols = [i for i in range(Gsta.shape[1])] #np.any(Gsta != 0, axis=0)
-#     ista = ista[used_cols]
-#     tiledates = np.tile(evtdates, nsta)[used_cols]
-#     utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(ts))
-#                          for ts in tiledates
-#                          ])
-#     timing_error, timing_cov = _solve_least_squares(Gsta[:, used_cols], dsta, dcov)
-#     timing_std = np.sqrt(np.diag(timing_cov))
-#     for i in range(nsta):
-#         staname = stations[i]
-#         j = np.where(ista == i)[0]
-#         histories.update({staname: {'T_UTC_in_s': tiledates[j],
-#                                     'delay_in_s': timing_error[j],
-#                                     'std_in_s': timing_std[j],
-#                                     'T_UTC': utcdates[j]}})
-#     print(histories)
-#     return histories
-
-
-def _build_demeaned_delays(df,
-                          evtnames,
-                          min_sta_per_pair,
-                          verbose=False,
-                          max_abs_delay=None):
-    """
-    Compute de-meaned inter-event traveltime delays for all pairs of events
-    """
-    if max_abs_delay is None:
-        max_abs_delay = np.inf
-    dtp = []
-    dts = []
-    for evt1, evt2, stations, dtp_pair, dts_pair, _, _ in \
-            _iter_over_event_pairs(df, evtnames, min_sta_per_pair):
-        dtp_dm = dtp_pair - dtp_pair.mean()
-        dts_dm = dts_pair - dts_pair.mean()
-        if verbose:
-            print(f'\n# Event pair: {evt1} - {evt2}')
-            print(f'Common stations with TPg and TSg pickings: {stations}')
-            print(f'Diff. traveltimes:\ndTp: {dtp_pair}\ndTs: {dts_pair}')
-            print(f'Mean diff. traveltimes:\n<dTp>: {dtp_pair.mean()}\n<dTs>: {dts_pair.mean()}')
-            print(f'De-meaned diff. traveltimes:\n[dTp]: {dtp_dm}\n[dTs]: {dts_dm}')
-
-        # Append demeaned diff. traveltimes to the global array:
-        if np.abs(dts_dm).max() < max_abs_delay:
-            dtp += list(dtp_dm)
-            dts += list(dts_dm)
-    if verbose:
-        print(f'\nTotal number of (dTP,dTs) observations: ({len(dtp)},{len(dts)})')
-    return dtp, dts
 
 
 def _write_timing_errors(outputdir, stations, histories):

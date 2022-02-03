@@ -76,7 +76,7 @@ class DataManager(object):
 
     def _load_dates_from_file(self, delim=';'):
         """
-        Load event dates, and eventually event names from a CSV formatted as below:
+        Load event (floating) dates, and eventually event names from a CSV formatted as below:
 
         id; dates
         event_001; 1041379202.3554274
@@ -122,9 +122,10 @@ class DataManager(object):
         print(f'number of records per station:')
         for sta, grp in self.delays.groupby('station'):
             uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
-            self.records.update({sta: uniq_evts})
+            uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]
+            self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
         for sta in records.keys():
-            print(f'{sta}: {len(self.records[sta])}')
+            print(f'{sta}: {len(self.records[sta]["evts"])}')
 
 
     def filter_delays_on_evtnames(self):
