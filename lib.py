@@ -24,6 +24,7 @@ class ClockDriftEstimator(object):
         self.m = None
         self.sqres = None
         self.rms = None
+        self.drifts = None
 
     def _build_inputs_for_inversion(self, vpvsratio, reference_stations,
                                       add_closure_triplets=True):
@@ -60,7 +61,7 @@ class ClockDriftEstimator(object):
         else:
             raise ValueError('Missing at least one of the following quantities: G, d, Cd, Cm.')
 
-    def _convert_m_to_histories(self, station_records):
+    def _convert_m_to_histories(self):
         """
         Return timing error histories from the array of pointwise, stationwise
         clock drift estimates g
@@ -72,30 +73,29 @@ class ClockDriftEstimator(object):
         """
         if (self.m is None) or (self.Cm is None):
             raise ValueError('Least squares inversion must be solved before caliing this method')
-        ns = len(stations_records)
-        stations = list(stations_records.keys())
+        ns = len(self.dm.reocrds)
+        stations = list(self.dm.records.keys())
         neps = []
         evtlist = []
-        for v in stations_records.values():
+        for v in self.dm.records.values():
             neps.append(len(v))
 
-        self.histories = dict()
+        self.drifts = dict()
         for s in stations:
             ista = stations.index(s)
             ix = sum(neps[:ista])
-            it = np.argsort(station_records[s]['dates'])
+            it = np.argsort(self.dm.records[s]['dates'])
 
             utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(ts))
-                                 for ts in station_records[s]['dates'][it]
+                                 for ts in self.dm.records[s]['dates'][it]
                                  ])
             subcm = self.cm(np.ix_(ix + it, ix + it))
             assert subcm.shape[0] == len(ix + it)
             assert subcm.shape[1] == len(ix + it)
-            histories.update({staname: {'T_UTC_in_s': station_records[s]['dates'][it],
+            self.drifts.update({staname: {'T_UTC_in_s': self.dm.records[s]['dates'][it],
                                         'delay_in_s': self.m[ix + it],
                                         'std_in_s': np.sqrt(np.diag(subcm)),
                                         'T_UTC': utcdates}})
-        return histories
 
 
     def _compute_residuals(self):
@@ -109,20 +109,6 @@ class ClockDriftEstimator(object):
         else:
             raise ValueError('Missing at least one of the following quantities: G, d, m')
 
-    def _pairwise_delays_to_histories(self):
-        if (self.m is not None) \
-            and (self.d_indx is not None) \
-            and (self.ndel is not None) \
-            and (self.Cm is not None):
-            self.drifts = _pairwise_delays_to_histories(
-                self.m,
-                self.d_indx[:self.ndel, :],
-                self.dm.stations,
-                len(self.dm.evtnames),
-                self.dm.evtdates,
-                self.Cm)
-        else:
-            raise ValueError('Missing at least one of the following quantities: m, d_indx, ndel, Cm')
 
     def write_outputs(self, outdir):
         """
@@ -144,15 +130,13 @@ class ClockDriftEstimator(object):
             vpvsratio,
             reference_stations,
             add_closure_triplets=add_closure_triplets)
-        print(f'\n>> [2/4] Run inversion of relative drifts')
-        self._convert_m_to_histories(m, cm, station_records)
-        self._solve_least_squares()
-        print(f'\n>> [3/4] Compute residuals')
+        print(f'\n>> [2/4] Run least-squares inversion')
+        self._convert_m_to_histories()
+        print(f'\n>> [/4] Compute residuals')
         self._compute_residuals()
         print(f'         sum of square residuals: {self.sqres}')
         print(f'         root mean square: {self.rms}')
         print(f'\n>> [4/4] Convert relative delays to clock drift histories')
-        self._pairwise_delays_to_histories()
         return self.drifts  # Return clock drift histories as Python dict
 
 
