@@ -100,7 +100,7 @@ if __name__ == "__main__":
             MIN_STA_PER_PAIR,
             OUTPUTDIR,
             make_plots=False,
-            reference_stations=['STA00'])
+            reference_stations=['STA00', 'STA13', 'STA14'])
 
 
 

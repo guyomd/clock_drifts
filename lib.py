@@ -18,7 +18,6 @@ class ClockDriftEstimator(object):
         self.G = None
         self.d = None
         self.d_index = None
-        self.ndel = None
         self.Cd = None
         self.Cm = None
         self.m = None
@@ -39,7 +38,7 @@ class ClockDriftEstimator(object):
             print('!! Missing delays (!). Loading data...')
             self.dm.load_data()
 
-        self.G, self.d, self.Cd, self.Cm, self.ndel = \
+        self.G, self.d, self.Cd, self.Cm, self.t = \
                 _build_matrices(self.dm.delays,
                                 vpvsratio,
                                 self.dm.records,
@@ -53,11 +52,13 @@ class ClockDriftEstimator(object):
             and (self.d is not None) \
             and (self.Cd is not None) \
             and (self.Cm is not None):
+            print(self.d)
             self.m, self.Cm = _solve_least_squares(
                 self.G,
                 self.d,
                 self.Cd,
                 self.Cm)
+            print(self.m)
         else:
             raise ValueError('Missing at least one of the following quantities: G, d, Cd, Cm.')
 
@@ -84,17 +85,18 @@ class ClockDriftEstimator(object):
         for s in stations:
             ista = stations.index(s)
             ix = sum(neps[:ista])
-            it = np.argsort(self.dm.records[s]['dates'])
+            dates = np.array(self.t[ix:(ix + neps[ista])])
+            drift = np.array(self.m[ix:(ix + neps[ista])])
+            it = np.argsort(dates)
 
-            utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(self.dm.records[s]['dates'][i]))
-                                 for i in it])
+            utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(d)) for d in dates])
             subcm = self.Cm[np.ix_(ix + it, ix + it)]
             assert subcm.shape[0] == len(ix + it)
             assert subcm.shape[1] == len(ix + it)
-            self.drifts.update({s: {'T_UTC_in_s': np.array([self.dm.records[s]['dates'][i] for i in it]),
-                                    'delay_in_s': self.m[ix + it],
+            self.drifts.update({s: {'T_UTC_in_s': dates[it],
+                                    'delay_in_s': drift[it],
                                     'std_in_s': np.sqrt(np.diag(subcm)),
-                                    'T_UTC': utcdates}})
+                                    'T_UTC': utcdates[it]}})
 
 
     def _compute_residuals(self):
@@ -199,7 +201,8 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     d = []
     dcov = []
     g = []
-   # Count stations:
+    t = []
+    # Count stations:
     ns = len(station_records)
     stations = list(station_records.keys())
 
@@ -207,6 +210,7 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     neps = []
     for rec in station_records.values():
         neps.append(len(rec['evts']))
+        t += rec['dates']
     nt = sum(neps)  # Total number of clock-drift time occurrences
 
     # Filter delay table on minimum number of stations per pair:
@@ -221,17 +225,16 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     # For each event-pair arrival-time delay (at a single station), add a line in d and G:
     for grp_name, grp in pairs.groupby(['evt1', 'evt2']):
         evt1, evt2 = grp_name
+        ista = [stations.index(s) for s in grp['station']]
+        ns = len(ista)
         dtp_dm = (grp['dtP']-grp['dtP'].mean()).values
         dts_dm = (grp['dtS']-grp['dtS'].mean()).values
         dtpvar = grp['dtPvar'].values
         dtsvar = grp['dtPvar'].values
-        n12 = len(grp['dtP'])  # Number of delays for the current pair: (evt1, evt2)
-        pvar = (grp['dtPvar'] + grp['dtPvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned P arrival time delays
-        svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / n12, 2)).values  # Variance on de-meaned S arrival time delays
+        pvar = (grp['dtPvar'] + grp['dtPvar'].sum()*np.power(1 / ns, 2)).values  # Variance on de-meaned P arrival time delays
+        svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / ns, 2)).values  # Variance on de-meaned S arrival time delays
         nex = len([s for s in grp['station'] if s in stations_wo_drift])
 
-        ista = [stations.index(s) for s in grp['station']]
-        ns = len(ista)
 
         for k in range(ns):
             # Add element to d (array of observations):
@@ -243,27 +246,18 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
             ix = sum(neps[:ista[k]])
             ix1 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt1)[0]
             ix2 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt2)[0]
-            g_line[ix1] = 1 - 1 / n12
-            g_line[ix2] = - (1 - 1 / n12)
-            # De-meaned timing error: remove average timing error for all other stations recording this event pair:
+            g_line[ix1] = 1 - 1 / ns
+            g_line[ix2] = - (1 - 1 / ns)
+            # De-meaned arrival times: remove average differential drift from all stations:
             for k2 in (j for j in range(ns) if j!=k):
                 iy = sum(neps[:ista[k2]])
                 iy1 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt1)[0]
                 iy2 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt2)[0]
-                g_line[iy1] = -1 / n12
-                g_line[iy2] = 1 / n12
+                g_line[iy1] = -1 / ns
+                g_line[iy2] = 1 / ns
             g.append(g_line)
 
-            # Eventually, add constraint on stations forced to have zero timing errors (+/- picking errors):
-            if stations[ista[k]] in stations_wo_drift:
-                d.append(0.0)
-                dcov.append(0.0)  # Data variance
-                g_line = np.zeros((nt,))
-                g_line[ix1] = 1
-                g_line[ix2] = -1
-                g.append(g_line)
-
-        del_cnt += n12
+        del_cnt += ns
         bar.update(del_cnt, title='Filling matrices G and d... ')
 
     # Add constraint on null initial clock drift value for each station:
@@ -272,10 +266,28 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
         ix = sum(neps[:ista])
         i0 = np.argsort(station_records[s]['dates'])[0]
         g_line = np.zeros((nt,))
-        g_line[ix+i0] = 1
+        g_line[ix + i0] = 1
         g.append(g_line)
         d.append(0.0)
         dcov.append(0.0)
+
+    # Add constraint on stations forced to have zero timing errors:
+    for s in stations_wo_drift:
+        ista = stations.index(s)
+        ix = sum(neps[:ista])
+        ne = len(station_records[s]['evts'])
+        for ie in range(ne):
+            g_line = np.zeros((nt,))
+            g_line[ix + ie] = 1
+            g.append(g_line)
+            d.append(0.0)
+            dcov.append(0.0)
+        g_line = np.zeros((nt,))
+        g_line[ix:(ix + ne)] = 1
+        g.append(g_line)
+        d.append(0.0)
+        dcov.append(0.0)
+
 
     g = np.array(g)
     d = np.array(d)
@@ -283,7 +295,7 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     Cm = np.diag(mcov)
     print(f'Dimensions of array d: {d.shape}')
     print(f'Dimensions of matrix G: {g.shape}')
-    return g, d, Cd, Cm, del_cnt
+    return g, d, Cd, Cm, t
 
 
 def _solve_least_squares(G, d, Cd, Cm):
@@ -292,6 +304,7 @@ def _solve_least_squares(G, d, Cd, Cm):
     :param G: matrix with NxM elements
     :param d: matrix with Nx1 elements: input data
     :param Cd: data covariance matrix, with NxN elements
+    :param Cm: a priori covariance on model parameters
     :return: m: solution array, with Mx1 elements
     """
     Gt = G.transpose()
