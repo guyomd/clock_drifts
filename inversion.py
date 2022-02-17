@@ -6,8 +6,7 @@ from clock_drifts import lib
 
 def run(datafile, datatype, eventfile, vpvsratio,
         min_sta_per_evt, min_sta_per_pair,
-        outputdir, make_plots=False, reference_stations=[],
-        add_closure_relation=True):
+        outputdir, make_plots=False, reference_stations=[]):
 
     # Check existence of output directory:
     if not os.path.exists(outputdir):
@@ -82,8 +81,10 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
 if __name__ == "__main__":
 
-    DATAFILE = './dataset/delays.txt' #./dataset/pickings.txt' 
-    DATATYPE = 'delays' # 'pickings' 
+    DATAFILE = './dataset/delays.txt' 
+    #DATAFILE = './dataset/pickings.txt' 
+    DATATYPE = 'delays' 
+    #DATATYPE = 'pickings' 
     EVENTFILE = './dataset/events.txt'
     MIN_STA_PER_EVT = 2
     MIN_STA_PER_PAIR = 2
