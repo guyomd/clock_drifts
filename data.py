@@ -91,7 +91,8 @@ class DataManager(object):
             self.eventfile,
             delimiter=delim,
             skipinitialspace=True,
-            usecols=['id', 'dates']
+            usecols=['id', 'dates'],
+            dtype={"id": str}
         )
         if (self.evtnames is None):
             print('   Event names not previously initiated. '+
@@ -124,7 +125,13 @@ class DataManager(object):
         print(f'number of records per station:')
         for sta, grp in self.delays.groupby('station'):
             uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
-            uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]
+            uniq_dates = []
+            for e in uniq_evts:
+                if e in self.evtnames:
+                    uniq_dates.append(self.evtdates[self.evtnames.index(e)])
+                else:
+                    uniq_evts = np.delete(uniq_evts, np.where(uniq_evts == e)[0])
+            #uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]  # Modified by lines above on Feb 17, 2022
             self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
         for sta in self.records.keys():
             print(f'{sta}: {len(self.records[sta]["evts"])}')
