@@ -25,8 +25,7 @@ class ClockDriftEstimator(object):
         self.rms = None
         self.drifts = None
 
-    def _build_inputs_for_inversion(self, vpvsratio, reference_stations,
-                                      add_closure_triplets=True):
+    def _build_inputs_for_inversion(self, vpvsratio, reference_stations):
 
         if self.dm.stations is None:
             print('!! Missing list of stations. Loading stations...')
@@ -37,14 +36,13 @@ class ClockDriftEstimator(object):
         if self.dm.delays is None:
             print('!! Missing delays (!). Loading data...')
             self.dm.load_data()
-
-        self.G, self.d, self.Cd, self.Cm, self.t = \
+        self.G, self.d, self.Cd, self.Cm, self.m_indx_s, self.m_indx_e = \
                 _build_matrices(self.dm.delays,
                                 vpvsratio,
+                                self.dm.evtnames,
                                 self.dm.records,
                                 min_sta_per_pair=self.dm.min_sta_per_pair,
-                                stations_wo_drift=reference_stations,
-                                add_closure_triplets=add_closure_triplets)
+                                stations_wo_drift=reference_stations)
 
 
     def _solve_least_squares(self):
@@ -52,13 +50,11 @@ class ClockDriftEstimator(object):
             and (self.d is not None) \
             and (self.Cd is not None) \
             and (self.Cm is not None):
-            print(self.d)
             self.m, self.Cm = _solve_least_squares(
                 self.G,
                 self.d,
                 self.Cd,
                 self.Cm)
-            print(self.m)
         else:
             raise ValueError('Missing at least one of the following quantities: G, d, Cd, Cm.')
 
@@ -84,19 +80,21 @@ class ClockDriftEstimator(object):
         self.drifts = dict()
         for s in stations:
             ista = stations.index(s)
-            ix = sum(neps[:ista])
-            dates = np.array(self.t[ix:(ix + neps[ista])])
-            drift = np.array(self.m[ix:(ix + neps[ista])])
-            it = np.argsort(dates)
+            dates = []
+            drift = []
+            ims = np.nonzero(self.m_indx_s == ista)[0]
+            dates = np.array([self.dm.evtdates[self.m_indx_e[im]] for im in ims])
+            drift = np.array([self.m[im] for im in ims])
 
+            isort = np.argsort(dates)
             utcdates = np.array([np.datetime64(datetime.utcfromtimestamp(d)) for d in dates])
-            subcm = self.Cm[np.ix_(ix + it, ix + it)]
-            assert subcm.shape[0] == len(ix + it)
-            assert subcm.shape[1] == len(ix + it)
-            self.drifts.update({s: {'T_UTC_in_s': dates[it],
-                                    'delay_in_s': drift[it],
+            subcm = self.Cm[np.ix_(ims[isort], ims[isort])]
+            assert subcm.shape[0] == len(isort)
+            assert subcm.shape[1] == len(isort)
+            self.drifts.update({s: {'T_UTC_in_s': dates[isort],
+                                    'drift_in_s': drift[isort],
                                     'std_in_s': np.sqrt(np.diag(subcm)),
-                                    'T_UTC': utcdates[it]}})
+                                    'T_UTC': utcdates[isort]}})
 
 
     def _compute_residuals(self):
@@ -183,17 +181,18 @@ def _inverse(m: np.ndarray):
         minv = np.linalg.pinv(m)
     return minv
 
-def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
-                    verbose=False, stations_wo_drift=[], add_closure_triplets=True):
+def _build_matrices(delays, vpvsratio, events, station_records, min_sta_per_pair=2,
+                    verbose=False, stations_wo_drift=[]):
     """
     :param delays: Pandas.DataFrame, as formatted by load_data() method
     :param vpvsratio: float, vp/vs ratio
+    :param events: list, event names
     :param station_records: dict, list of event recordings for each station (keys)
     :param min_sta_per_pair: int, minimum number of stations per event pair
     :param verbose: boolean, set verbosity
     :param stations_wo_drift: list of stations forced to have no timing errors
     :param add_closure_triplets: boolean, Flag specifying whether closure triplets should be appended to G.
-    :return:
+    :returns:
     """
     if min_sta_per_pair < 2:
         raise ValueError('Minimum number of stations per event pair cannot be smaller than 2')
@@ -201,32 +200,44 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     d = []
     dcov = []
     g = []
-    t = []
-    # Count stations:
-    ns = len(station_records)
-    stations = list(station_records.keys())
+    m_indx_s = []  # Station index for each element in m
+    m_indx_e = []  # Event index for each element in m
 
-    # Count events:
-    neps = []
-    for rec in station_records.values():
-        neps.append(len(rec['evts']))
-        t += rec['dates']
-    nt = sum(neps)  # Total number of clock-drift time occurrences
+    # Count stations:
+    stations = list(station_records.keys())
+    nsta = len(stations)
+
+    # Count events per station:
+    nev = len(events)
+    nev_per_sta = []
+    for (sta, rec) in station_records.items():
+        ne = len(rec['evts'])
+        nev_per_sta.append(ne)
+        m_indx_s += [stations.index(sta)] * ne
+        m_indx_e += [events.index(e) for e in rec['evts']]
+    m_indx_s = np.array(m_indx_s)
+    m_indx_e = np.array(m_indx_e)
+    nm = sum(nev_per_sta)  # Total number of clock-drift time occurrences
+    assert nm == len(m_indx_e)
+    assert len(m_indx_s) == len(m_indx_e)
+    print(f'Number of drift values: {nm}')
 
     # Filter delay table on minimum number of stations per pair:
     pairs = delays.groupby(['evt1', 'evt2']) \
                   .filter(lambda x: (len(x) > min_sta_per_pair))  # Pandas.DataFrame instance
-    nm = len(pairs)
-    print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {nm}')
-    bar = ProgressBar(nm)
-    mcov = np.ones((nt,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
+    npairs = len(pairs)
+    print(f'Event pairs (arrival-time delays) recorded by at least {min_sta_per_pair} stations: {npairs}')
+    bar = ProgressBar(npairs)
+    mcov = np.ones((nm,))/_QUASI_ZERO  # equiv. infinite a priori variance (undetermined)
     del_cnt = 0
 
     # For each event-pair arrival-time delay (at a single station), add a line in d and G:
     for grp_name, grp in pairs.groupby(['evt1', 'evt2']):
         evt1, evt2 = grp_name
+        ie1 = events.index(evt1)
+        ie2 = events.index(evt2)
         ista = [stations.index(s) for s in grp['station']]
-        ns = len(ista)
+        ns = len(ista) # number of stations in current group
         dtp_dm = (grp['dtP']-grp['dtP'].mean()).values
         dts_dm = (grp['dtS']-grp['dtS'].mean()).values
         dtpvar = grp['dtPvar'].values
@@ -235,26 +246,23 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
         svar = (grp['dtSvar'] + grp['dtSvar'].sum()*np.power(1 / ns, 2)).values  # Variance on de-meaned S arrival time delays
         nex = len([s for s in grp['station'] if s in stations_wo_drift])
 
-
         for k in range(ns):
             # Add element to d (array of observations):
             d.append((dts_dm[k] - vpvsratio * dtp_dm[k]) / (1 - vpvsratio))
             dcov.append( (svar[k] + (vpvsratio**2)*pvar[k]) / (1 - vpvsratio)**2 )  # Data variance
 
             # Buildup G:
-            g_line = np.zeros((nt,))
-            ix = sum(neps[:ista[k]])
-            ix1 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt1)[0]
-            ix2 = ix + np.nonzero(station_records[stations[ista[k]]]['evts'] == evt2)[0]
-            g_line[ix1] = 1 - 1 / ns
-            g_line[ix2] = - (1 - 1 / ns)
+            g_line = np.zeros((nm,))
+            im1 = np.where(np.logical_and(m_indx_e == ie1, m_indx_s == ista[k]))[0]
+            im2 = np.where(np.logical_and(m_indx_e == ie2, m_indx_s == ista[k]))[0]
+            g_line[im1] = 1
+            g_line[im2] = -1
             # De-meaned arrival times: remove average differential drift from all stations:
-            for k2 in (j for j in range(ns) if j!=k):
-                iy = sum(neps[:ista[k2]])
-                iy1 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt1)[0]
-                iy2 = iy + np.nonzero(station_records[stations[ista[k2]]]['evts'] == evt2)[0]
-                g_line[iy1] = -1 / ns
-                g_line[iy2] = 1 / ns
+            for k2 in range(ns):
+                im1 = np.where(np.logical_and(m_indx_e == ie1, m_indx_s == ista[k2]))[0]
+                im2 = np.where(np.logical_and(m_indx_e == ie2, m_indx_s == ista[k2]))[0]
+                g_line[im1] -= 1 / ns
+                g_line[im2] -= -1 / ns
             g.append(g_line)
 
         del_cnt += ns
@@ -263,31 +271,28 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     # Add constraint on null initial clock drift value for each station:
     for s in stations:
         ista = stations.index(s)
-        ix = sum(neps[:ista])
-        i0 = np.argsort(station_records[s]['dates'])[0]
-        g_line = np.zeros((nt,))
-        g_line[ix + i0] = 1
+        #ie0 = np.argsort(station_records[s]['dates'])[0]
+        ie0 = np.argmin(station_records[s]['dates'])
+        ie = events.index(station_records[s]['evts'][ie0])
+        im = np.nonzero(np.logical_and(m_indx_e == ie, m_indx_s == ista))[0]
+        g_line = np.zeros((nm,))
+        g_line[im] = 1
         g.append(g_line)
         d.append(0.0)
         dcov.append(0.0)
-
-    # Add constraint on stations forced to have zero timing errors:
-    for s in stations_wo_drift:
-        ista = stations.index(s)
-        ix = sum(neps[:ista])
-        ne = len(station_records[s]['evts'])
-        for ie in range(ne):
-            g_line = np.zeros((nt,))
-            g_line[ix + ie] = 1
-            g.append(g_line)
-            d.append(0.0)
-            dcov.append(0.0)
-        g_line = np.zeros((nt,))
-        g_line[ix:(ix + ne)] = 1
-        g.append(g_line)
-        d.append(0.0)
-        dcov.append(0.0)
-
+        mcov[im] = _QUASI_ZERO
+        # Add additional constraints on stations forced to have zero timing errors:
+        if s in stations_wo_drift:
+            enum_evts = [(indx, name) for indx, name in enumerate(station_records[s]['evts']) if indx != ie0]
+            for _, evt in enum_evts:
+                ie = events.index(evt)
+                im = np.nonzero(np.logical_and(m_indx_e == ie, m_indx_s == ista))[0]
+                g_line = np.zeros((nm,))
+                g_line[im] = 1
+                g.append(g_line)
+                d.append(0.0)
+                dcov.append(0.0)
+                mcov[im] = _QUASI_ZERO
 
     g = np.array(g)
     d = np.array(d)
@@ -295,7 +300,19 @@ def _build_matrices(delays, vpvsratio, station_records, min_sta_per_pair=2,
     Cm = np.diag(mcov)
     print(f'Dimensions of array d: {d.shape}')
     print(f'Dimensions of matrix G: {g.shape}')
-    return g, d, Cd, Cm, t
+    return g, d, Cd, Cm, m_indx_s, m_indx_e
+
+'''
+def _solve_least_squares(G, d, Cd, Cm):
+    """
+    test, no covariance
+    """
+    Gt = G.transpose()
+    GtG = Gt @ G
+    GtGinv = _inverse(GtG)
+    m = GtGinv @ Gt @ d
+    return m, np.zeros_like(Cm)
+'''
 
 
 def _solve_least_squares(G, d, Cd, Cm):
@@ -335,13 +352,13 @@ def _compute_residuals(G,d,m):
 
 def _write_timing_errors(outputdir, stations, histories):
     for sta in stations:
-        filename = os.path.join(outputdir, f'timing_delays_{sta}.txt')
+        filename = os.path.join(outputdir, f'clock_drift_{sta}.txt')
         with open(filename, 'wt', newline='') as f:
             writer = csv.writer(f, delimiter=';')
-            writer.writerow(('T_UTC', 'T_UTC_in_s', 'delay_in_s', 'std_in_s'))
+            writer.writerow(('T_UTC', 'T_UTC_in_s', 'drift_in_s', 'std_in_s'))
             writer.writerows(zip(histories[sta]['T_UTC'],
                                  histories[sta]['T_UTC_in_s'],
-                                 histories[sta]['delay_in_s'],
+                                 histories[sta]['drift_in_s'],
                                  histories[sta]['std_in_s']))
 
 

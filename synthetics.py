@@ -105,26 +105,26 @@ for s in stanames:
     ERR.update({s:
                     {'ti': ti,
                      'ti_utc': ti_utc,
-                     'delay_s': np.zeros(len(ti),)}
+                     'drift_s': np.zeros(len(ti),)}
                 })
 
 ERR.update(
     {'STA02':
        {'ti': ti,
         'ti_utc': ti_utc,
-#        'delay_s': np.linspace(0, 100, len(ti))
-        'delay_s': 10*np.sin( 2 * np.pi * np.linspace(0, 2, len(ti)) )
+#        'drift_s': np.linspace(0, 100, len(ti))
+        'drift_s': 10*np.sin( 2 * np.pi * np.linspace(0, 2, len(ti)) )
        },
      'STA05':
        {'ti': ti,
         'ti_utc': ti_utc,
-        'delay_s': np.concatenate((np.linspace(0, -15, int(np.floor(nev/2))),
+        'drift_s': np.concatenate((np.linspace(0, -15, int(np.floor(nev/2))),
                                    np.linspace(20,0,len(ti)-int(np.floor(nev/2)))))
        },
      'STA07':
        {'ti': ti,
         'ti_utc': ti_utc,
-        'delay_s': np.linspace(0, 30, len(ti))
+        'drift_s': np.linspace(0, 30, len(ti))
        }
     })
 
@@ -154,7 +154,7 @@ for i in  range(nev):
         pickings['tS'].append(ti[i]+d/vs)
         pickings['tPerr'].append(tPerr)
         pickings['tSerr'].append(tSerr)
-        pickings['timing_delay'].append(ERR[stanames[j]]['delay_s'][i])  # Clock drift
+        pickings['timing_delay'].append(ERR[stanames[j]]['drift_s'][i])  # Clock drift
         pickings['ti'].append(ti[i])
         pickings['ti_utc'].append(ti_utc[i])
         pickings['evt2sta_dist'].append(d)
@@ -170,8 +170,8 @@ print(f'Reference pickings saved in file "{REFERENCE_PICKFILE}"')
 for sta in ERR.keys():
     s = str(sta)
     ii = pk['station']==s
-    pk.loc[ii, 'tP'] += np.array(ERR[sta]['delay_s']) + rng_tt.normal(0, tPerr, size=len(pk.loc[ii, 'tP']))
-    pk.loc[ii, 'tS'] += np.array(ERR[sta]['delay_s']) + rng_tt.normal(0, tSerr, size=len(pk.loc[ii, 'tS']))
+    pk.loc[ii, 'tP'] += np.array(ERR[sta]['drift_s']) + rng_tt.normal(0, tPerr, size=len(pk.loc[ii, 'tP']))
+    pk.loc[ii, 'tS'] += np.array(ERR[sta]['drift_s']) + rng_tt.normal(0, tSerr, size=len(pk.loc[ii, 'tS']))
 
 # EXPORT SYNTHETIC DATASET TO FILES
 # Event info:

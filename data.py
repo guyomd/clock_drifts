@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-_QUASI_ZERO = 1E-6
+_QUASI_ZERO = 1E-8
 
 class DataManager(object):
     def __init__(self, filename, datatype, eventfile=None, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
@@ -101,7 +101,9 @@ class DataManager(object):
             self.evtdates = events['dates'].values
         else:
             # Load only dates for events listed in evtnames:
-            self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
+            self.evtdates = []
+            for name in self.evtnames:
+                self.evtdates.append(events[events['id'] == name]['dates'].values[0])
         return self.evtdates
 
 
@@ -316,7 +318,6 @@ def _count_stations_per_pair(df, stations):
         for s in grp['station']:
             evt_records[s][ie_1, ie_2] = 1
             evt_records[s][ie_2, ie_1] = 1
-
     return num_records, evt_records
 
 

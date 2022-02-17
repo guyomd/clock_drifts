@@ -24,7 +24,6 @@ def run(datafile, datatype, eventfile, vpvsratio,
                           eventfile,
                           min_sta_per_evt=min_sta_per_evt, 
                           min_sta_per_pair=min_sta_per_pair)
-
     print(f'>> Raw data analysis (file "{datafile}"):')
     dm.count_records_per_station()
 
@@ -100,7 +99,7 @@ if __name__ == "__main__":
             MIN_STA_PER_PAIR,
             OUTPUTDIR,
             make_plots=False,
-            reference_stations=['STA00', 'STA13', 'STA14'])
+            reference_stations=['STA00',  'STA10', 'STA11', 'STA13', 'STA14'])
 
 
 

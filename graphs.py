@@ -75,7 +75,7 @@ def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None):
             else: 
                 # Use ISO datetime format:
                 time = np.array(histories[s]['T_UTC'])
-            plt.plot(time, histories[s]['delay_in_s'], color=colorVal, label=s)
+            plt.plot(time, histories[s]['drift_in_s'], color=colorVal, label=s)
 
     plt.xlabel('Time')
     plt.ylabel('Timing delay [s]')
