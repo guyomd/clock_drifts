@@ -35,7 +35,7 @@ else:
     seed_tt = 23
 
 
-OUTPUT_PICKFILE = os.path.join(OUTPUTDIR, 'dataset.txt')
+OUTPUT_PICKFILE = os.path.join(OUTPUTDIR, 'pickings.txt')
 OUTPUT_EVENTFILE = os.path.join(OUTPUTDIR, 'events.txt')
 OUTPUT_DELAYFILE = os.path.join(OUTPUTDIR, 'delays.txt')
 REFERENCE_PICKFILE = os.path.join(OUTPUTDIR, 'reference.txt')
