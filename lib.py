@@ -302,18 +302,6 @@ def _build_matrices(delays, vpvsratio, events, station_records, min_sta_per_pair
     print(f'Dimensions of matrix G: {g.shape}')
     return g, d, Cd, Cm, m_indx_s, m_indx_e
 
-'''
-def _solve_least_squares(G, d, Cd, Cm):
-    """
-    test, no covariance
-    """
-    Gt = G.transpose()
-    GtG = Gt @ G
-    GtGinv = _inverse(GtG)
-    m = GtGinv @ Gt @ d
-    return m, np.zeros_like(Cm)
-'''
-
 
 def _solve_least_squares(G, d, Cd, Cm):
     """
