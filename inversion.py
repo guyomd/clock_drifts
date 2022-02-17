@@ -55,8 +55,8 @@ def run(datafile, datatype, eventfile, vpvsratio,
                              f'{s}_relative_timing_error_matrix.png'),
                              h=ax)
 
-        # Plot time histories:
-    ax = graphs.plot_clock_drift(drifts, dm.stations)
+    # Plot time histories:
+    ax = graphs.plot_clock_drift(drifts, dm.stations, add_uncertainties=True)
     graphs.save_plot(
         os.path.join(outputdir,
                      f'clock_drifts.png'),
