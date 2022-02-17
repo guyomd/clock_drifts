@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-_QUASI_ZERO = 1E-6
+_QUASI_ZERO = 1E-8
 
 class DataManager(object):
     def __init__(self, filename, datatype, eventfile=None, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
@@ -76,7 +76,7 @@ class DataManager(object):
 
     def _load_dates_from_file(self, delim=';'):
         """
-        Load event dates, and eventually event names from a CSV formatted as below:
+        Load event (floating) dates, and eventually event names from a CSV formatted as below:
 
         id; dates
         event_001; 1041379202.3554274
@@ -101,7 +101,9 @@ class DataManager(object):
             self.evtdates = events['dates'].values
         else:
             # Load only dates for events listed in evtnames:
-            self.evtdates = events.loc[events['id'].isin(self.evtnames), 'dates'].values
+            self.evtdates = []
+            for name in self.evtnames:
+                self.evtdates.append(events[events['id'] == name]['dates'].values[0])
         return self.evtdates
 
 
@@ -118,14 +120,24 @@ class DataManager(object):
 
 
     def count_records_per_station(self):
-        records = dict()
+        self.records = dict()
         print(f'number of records per station:')
         for sta, grp in self.delays.groupby('station'):
             uniq_evts = np.unique( np.append( grp['evt1'].unique(), grp['evt2'].unique() ) )
-            records.update({sta: uniq_evts})
-        for sta in records.keys():
-            print(f'{sta}: {len(records[sta])}')
-        return records
+            uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]
+            self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
+        for sta in self.records.keys():
+            print(f'{sta}: {len(self.records[sta]["evts"])}')
+
+
+    def filter_delays_on_evtnames(self):
+        """
+         Filter delay table on event names:
+         :param evtnames: list, event names to keep in the delay table
+        """
+        if self.evtnames is None:
+            self.load_events()
+        self.delays = self.delays[self.delays['evt1'].isin(self.evtnames) & self.delays['evt2'].isin(self.evtnames)]
 
 
 
@@ -306,7 +318,6 @@ def _count_stations_per_pair(df, stations):
         for s in grp['station']:
             evt_records[s][ie_1, ie_2] = 1
             evt_records[s][ie_2, ie_1] = 1
-
     return num_records, evt_records
 
 

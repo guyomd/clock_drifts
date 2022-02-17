@@ -6,8 +6,7 @@ from clock_drifts import lib
 
 def run(datafile, datatype, eventfile, vpvsratio,
         min_sta_per_evt, min_sta_per_pair,
-        outputdir, make_plots=False, reference_stations=[],
-        add_closure_relation=True):
+        outputdir, make_plots=False, reference_stations=[]):
 
     # Check existence of output directory:
     if not os.path.exists(outputdir):
@@ -24,7 +23,6 @@ def run(datafile, datatype, eventfile, vpvsratio,
                           eventfile,
                           min_sta_per_evt=min_sta_per_evt, 
                           min_sta_per_pair=min_sta_per_pair)
-
     print(f'>> Raw data analysis (file "{datafile}"):')
     dm.count_records_per_station()
 
@@ -38,8 +36,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
     cde = lib.ClockDriftEstimator(dm)
     drifts = cde.run(vpvsratio, 
-                     reference_stations, 
-                     add_closure_triplets=add_closure_relation)
+                     reference_stations) 
     
     if make_plots:
         # Display relative timing errors:
@@ -58,8 +55,8 @@ def run(datafile, datatype, eventfile, vpvsratio,
                              f'{s}_relative_timing_error_matrix.png'),
                              h=ax)
 
-        # Plot time histories:
-    ax = graphs.plot_clock_drift(drifts, dm.stations)
+    # Plot time histories:
+    ax = graphs.plot_clock_drift(drifts, dm.stations, add_uncertainties=True)
     graphs.save_plot(
         os.path.join(outputdir,
                      f'clock_drifts.png'),
@@ -75,7 +72,6 @@ def run(datafile, datatype, eventfile, vpvsratio,
                   'evtdates': dm.evtdates,
                   'm': cde.m,
                   'd': cde.d,
-                  'd_indx': cde.d_indx,
                   'sum_sq_res': cde.sqres,
                   'rms': cde.rms
                  }
@@ -85,8 +81,10 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
 if __name__ == "__main__":
 
-    DATAFILE = './dataset/delays.txt' #./dataset/pickings.txt' 
-    DATATYPE = 'delays' # 'pickings' 
+    DATAFILE = './dataset/delays.txt' 
+    #DATAFILE = './dataset/pickings.txt' 
+    DATATYPE = 'delays' 
+    #DATATYPE = 'pickings' 
     EVENTFILE = './dataset/events.txt'
     MIN_STA_PER_EVT = 2
     MIN_STA_PER_PAIR = 2
@@ -102,7 +100,7 @@ if __name__ == "__main__":
             MIN_STA_PER_PAIR,
             OUTPUTDIR,
             make_plots=False,
-            reference_stations=['STA00'])
+            reference_stations=['STA00',  'STA10', 'STA11', 'STA13', 'STA14'])
 
 
 

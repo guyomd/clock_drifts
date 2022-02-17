@@ -61,7 +61,7 @@ def plot_count_matrix(count_matrix, colmap='terrain_r',
     return ax
 
 
-def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None):
+def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None, add_uncertainties=False):
     plt.figure()
     cNorm = colors.Normalize(vmin=0, vmax=len(stations)-1)
     scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=plt.get_cmap(cmap))
@@ -75,7 +75,10 @@ def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None):
             else: 
                 # Use ISO datetime format:
                 time = np.array(histories[s]['T_UTC'])
-            plt.plot(time, histories[s]['delay_in_s'], color=colorVal, label=s)
+            plt.plot(time, histories[s]['drift_in_s'], color=colorVal, label=s)
+            if add_uncertainties:
+                plt.plot(time, histories[s]['drift_in_s'] - histories[s]['std_in_s'], color=colorVal, lw=0.5)
+                plt.plot(time, histories[s]['drift_in_s'] + histories[s]['std_in_s'], color=colorVal, lw=0.5)
 
     plt.xlabel('Time')
     plt.ylabel('Timing delay [s]')
