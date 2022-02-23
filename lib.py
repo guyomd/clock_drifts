@@ -339,7 +339,7 @@ def _compute_residuals(G,d,m):
 
 
 def _write_timing_errors(outputdir, stations, histories):
-    for sta in stations:
+    for sta in histories.keys():
         filename = os.path.join(outputdir, f'clock_drift_{sta}.txt')
         with open(filename, 'wt', newline='') as f:
             writer = csv.writer(f, delimiter=';')

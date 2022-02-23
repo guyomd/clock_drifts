@@ -65,8 +65,8 @@ def plot_clock_drift(histories, stations, cmap='tab20', time_converter=None, add
     plt.figure()
     cNorm = colors.Normalize(vmin=0, vmax=len(stations)-1)
     scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=plt.get_cmap(cmap))
-    for ista in range(len(stations)):
-        s = stations[ista]
+    for s in histories.keys():
+        ista = stations.index(s)
         colorVal = scalarMap.to_rgba(ista)
         if len(histories[s]['T_UTC_in_s']) > 0:
             if (time_converter is not None) and (s in list(time_converter.keys())): 
