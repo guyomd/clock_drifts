@@ -131,8 +131,10 @@ class DataManager(object):
                     uniq_dates.append(self.evtdates[self.evtnames.index(e)])
                 else:
                     uniq_evts = np.delete(uniq_evts, np.where(uniq_evts == e)[0])
-            #uniq_dates = [self.evtdates[self.evtnames.index(e)] for e in uniq_evts]  # Modified by lines above on Feb 17, 2022
-            self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
+            if len(uniq_evts)>0:
+                self.records.update({sta: {'evts': uniq_evts, 'dates': uniq_dates}})
+            else:
+                print(f'{sta}: None')
         for sta in self.records.keys():
             print(f'{sta}: {len(self.records[sta]["evts"])}')
 
