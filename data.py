@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-_QUASI_ZERO = 1E-8
+_QUASI_ZERO = 1E-6  
 
 class DataManager(object):
     def __init__(self, filename, datatype, eventfile=None, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
