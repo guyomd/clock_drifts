@@ -381,7 +381,7 @@ def _get_dates_from_pickings(df, min_sta_per_evt=0):
 
 
 
-def get_drift(filename, date, date_accuracy=0.01):
+def get_drift(filename, date, date_accuracy=0.01, interp=True):
     """
     Returns clock drift from a specific output file, at a specific date if exists, or otherwise
     by returning a linear interpolation of drift between the two neighboring dates in file.
@@ -398,15 +398,15 @@ def get_drift(filename, date, date_accuracy=0.01):
         if len(j)>0:
             drift = float(d[j,1])
             std = float(d[j,2])
-        elif d[0,0] < date:
+        elif (not interp) and (d[0,0] < date):
             j = np.where( d[:,0] <= date )[0][-1]
             drift = float(d[j,1])
             std = float(d[j,2])
-        #elif (d[0,0] < date) and (d[-1,0] > date):
-        #    j1 = np.where( d[:,0] <= date )[0][-1]
-        #    j2 = np.where( d[:,0] > date )[0][0]
-        #    drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
-        #    std = d[j1,2] + (d[j2,2] - d[j1,2]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
+        elif interp and ((d[0,0] < date) and (d[-1,0] > date)):
+            j1 = np.where( d[:,0] <= date )[0][-1]
+            j2 = np.where( d[:,0] > date )[0][0]
+            drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
+            std = d[j1,2] + (d[j2,2] - d[j1,2]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
         else:
             drift = 0
             std = 0

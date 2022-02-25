@@ -1,9 +1,12 @@
+import os   
+import glob
+import numpy as np
+import pandas as pd
+from datetime import datetime
 from matplotlib import pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
-from datetime import datetime
-import numpy as np
 
 def save_plot(filename, h=None, size=(8,6), keep_opened=False, tight=False, **kwargs):
     if isinstance(h, plt.Axes):
@@ -127,7 +130,7 @@ def plot_demeaned_delays(dtp, dts):
     return ax
 
 
-def plot_drifts(outputdir, sharey=False):
+def plot_drifts(outputdir, sharey=False, show=True, figsize=(10,14)):
     """
     Displays clock drift histories, with subplots distributed in 2 columns, one station per subplot.
 
@@ -143,7 +146,12 @@ def plot_drifts(outputdir, sharey=False):
 
     ns = len(dfs.keys())
     stations = list(dfs.keys())
-    f, ax = plt.subplots(nrows = int(np.ceil(ns/2)), ncols=2, sharex=True, sharey=sharey)
+    f, ax = plt.subplots(
+            nrows=int(np.ceil(ns/2)), 
+            ncols=2, 
+            sharex=True, 
+            sharey=sharey,
+            figsize=figsize)
     ax = ax.flatten()
     all_ti = np.array([np.datetime64(s) for key in dfs.keys() for s in dfs[key]['T_UTC'].values])
     xmin = np.min(all_ti)
@@ -173,7 +181,8 @@ def plot_drifts(outputdir, sharey=False):
     if sharey:
         ax[0].set_ylim([ymin, ymax])
     plt.gcf().autofmt_xdate()
-    plt.show()
+    if show:
+        plt.show()
     return f
 
 

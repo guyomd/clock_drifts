@@ -6,16 +6,21 @@ from clock_drifts import lib
 
 def run(datafile, datatype, eventfile, vpvsratio,
         min_sta_per_evt, min_sta_per_pair,
-        outputdir, make_plots=False, reference_stations=[]):
+        outputdir, additional_plots=False, reference_stations=[]):
 
     # Check existence of output directory:
     if not os.path.exists(outputdir):
         print(f'Directory {outputdir} does not exists.')
         print(f'Create directory {outputdir}.')
         os.makedirs(outputdir)
+    else:
+        print(f'Reset all contents of {outputdir}')
+        for root, dirs, files in os.walk(outputdir):
+            for f in files:
+                os.remove(os.path.join(root, f))
 
     # Print plotting status:
-    print(f'>> Is plot option activated ? {make_plots}')
+    print(f'>> Is option activated for additional plots ? {additional_plots}')
 
     # Load data:
     dm = data.DataManager(datafile, 
@@ -38,7 +43,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
     drifts = cde.run(vpvsratio, 
                      reference_stations) 
     
-    if make_plots:
+    if additional_plots:
         # Display relative timing errors:
         print(f'>> Make plots:')
         sem = lib._m_to_station_error_matrix(cde.m,
@@ -59,7 +64,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
     cde.write_outputs(outputdir)
 
     # Plot time histories:
-    f = graphs.plot_drifts(outputdir)
+    f = graphs.plot_drifts(outputdir, show=False)
     graphs.save_plot(os.path.join(outputdir, f'clock_drifts.png'),
                      h=f)
 
@@ -78,7 +83,7 @@ def run(datafile, datatype, eventfile, vpvsratio,
 
 
 if __name__ == "__main__":
-
+    # TODO: Add proper parsing of command-line arguments using argparse
     DATAFILE = './dataset/delays.txt' 
     #DATAFILE = './dataset/pickings.txt' 
     DATATYPE = 'delays' 
@@ -97,7 +102,7 @@ if __name__ == "__main__":
             MIN_STA_PER_EVT,
             MIN_STA_PER_PAIR,
             OUTPUTDIR,
-            make_plots=False,
+            additional_plots=False,
             reference_stations=['STA00',  'STA10', 'STA11', 'STA13', 'STA14'])
 
 
