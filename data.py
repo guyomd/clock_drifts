@@ -390,17 +390,23 @@ def get_drift(filename, date, date_accuracy=0.01):
     :param date: float, date expressed in s.
     :param date_accuracy: float, accuracy of the comparison in date. set by default to 0.01 s.
 
-    :returns drift: float, clock drift, in s. Positive for delayed timing, negative for anticipated timing
+    :returns drift, std: tuple, clock drift and standard deviation, in s. Clock drift is positive for delayed timing, and negative for anticipated timing
     """
     if os.path.exists(filename):
         d = np.loadtxt(filename, delimiter=';', skiprows=1, usecols=(1,2,3))
         j = np.where(np.abs(d[:,0] - date) < date_accuracy)[0]
         if len(j)>0:
             drift = float(d[j,1])
-        elif (d[0,0] < date) and (d[-1,0] > date):
-            j1 = np.where( d[:,0] <= date )[0][-1]
-            j2 = np.where( d[:,0] > date )[0][0]
-            drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
+        elif d[0,0] < date:
+            j = np.where( d[:,0] <= date )[0][-1]
+            drift = float(d[j,1])
+            std = float(d[j,2])
+        #elif (d[0,0] < date) and (d[-1,0] > date):
+        #    j1 = np.where( d[:,0] <= date )[0][-1]
+        #    j2 = np.where( d[:,0] > date )[0][0]
+        #    drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
+        #    std = d[j1,2] + (d[j2,2] - d[j1,2]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
         else:
             drift = 0
-        return drift
+            std = 0
+        return drift, std
