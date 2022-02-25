@@ -397,6 +397,7 @@ def get_drift(filename, date, date_accuracy=0.01):
         j = np.where(np.abs(d[:,0] - date) < date_accuracy)[0]
         if len(j)>0:
             drift = float(d[j,1])
+            std = float(d[j,2])
         elif d[0,0] < date:
             j = np.where( d[:,0] <= date )[0][-1]
             drift = float(d[j,1])
