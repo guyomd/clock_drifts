@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import os
 
 _QUASI_ZERO = 1E-6  
 
@@ -378,4 +379,28 @@ def _get_dates_from_pickings(df, min_sta_per_evt=0):
                          if len(subdf) >= min_sta_per_evt])
     return evtdates
 
+
+
+def get_drift(filename, date, date_accuracy=0.01):
+    """
+    Returns clock drift from a specific output file, at a specific date if exists, or otherwise
+    by returning a linear interpolation of drift between the two neighboring dates in file.
+
+    :param filename: str, clock-drift output file
+    :param date: float, date expressed in s.
+    :param date_accuracy: float, accuracy of the comparison in date. set by default to 0.01 s.
+
+    :returns drift: float, clock drift, in s. Positive for delayed timing, negative for anticipated timing
+    """
+    if os.path.exists(filename):
+        d = np.loadtxt(filename, delimiter=';', skiprows=1, usecols=(1,2,3))
+        j = np.where(np.abs(d[:,0] - date) < date_accuracy)[0]
+        if len(j)>0:
+            drift = float(d[j,1])
+        elif (d[0,0] < date) and (d[-1,0] > date):
+            j1 = np.where( d[:,0] <= date )[0][-1]
+            j2 = np.where( d[:,0] > date )[0][0]
+            drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
+        else:
+            drift = 0
 

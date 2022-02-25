@@ -125,3 +125,55 @@ def plot_demeaned_delays(dtp, dts):
     plt.grid(True, which='both', linestyle=':', lw=1)
     plt.legend()
     return ax
+
+
+def plot_drifts(outputdir, sharey=False):
+    """
+    Displays clock drift histories, with subplots distributed in 2 columns, one station per subplot.
+
+    :param outputdir: str, path to the directory which contains files "clock_drift_*.txt"
+    :param sharey: bool, If True, share the same Y-axes limits among all subplot. Default: False.
+    
+    :returns f: Matplotlib.Pyplot.Figure instance
+    """
+    dfs = dict()
+    for filename in glob.glob(os.path.join(outputdir,"clock_drift_*.txt")):
+        sta = filename.split('_')[-1].split('.')[0]
+        dfs.update({sta: pd.read_csv(filename, sep=';')})
+
+    ns = len(dfs.keys())
+    stations = list(dfs.keys())
+    f, ax = plt.subplots(nrows = int(np.ceil(ns/2)), ncols=2, sharex=True, sharey=sharey)
+    ax = ax.flatten()
+    all_ti = np.array([np.datetime64(s) for key in dfs.keys() for s in dfs[key]['T_UTC'].values])
+    xmin = np.min(all_ti)
+    xmax = np.max(all_ti)
+    ymin = 0
+    ymax = 0
+    for i in range(ns):
+        x = np.array([np.datetime64(s) for s in dfs[stations[i]]['T_UTC'].values])
+        y = dfs[stations[i]]['drift_in_s'].values
+        dy = dfs[stations[i]]['std_in_s'].values
+        if y.min()<ymin: ymin=y.min()
+        if y.max()>ymax: ymax=y.max()
+        ax[i].plot_date([xmin, xmax], [0, 0], ':k', lw=0.5, ydate=False)
+        ax[i].plot_date(x, y-dy, 'k--', ydate=False, lw=0.5)
+        ax[i].plot_date(x, y+dy, 'k--', ydate=False, lw=0.5)
+        ax[i].plot_date(x, y, 'k.-', markersize=6, label=stations[i], ydate=False, lw=1.5)
+        if not sharey:
+            ylimit = np.max(np.abs(ax[i].get_ylim()))
+            ylimit = max([ylimit, 1])
+            ax[i].set_ylim([-ylimit, ylimit])
+        ax[i].set_ylabel('drift [s]')
+        ax[i].legend()
+
+    ymin = np.min([ymin, -ymax])
+    ymax = np.max([-ymin, ymax])
+    ax[0].set_xlim([xmin, xmax])
+    if sharey:
+        ax[0].set_ylim([ymin, ymax])
+    plt.gcf().autofmt_xdate()
+    plt.show()
+    return f
+
+
