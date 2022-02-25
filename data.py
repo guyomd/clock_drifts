@@ -403,4 +403,4 @@ def get_drift(filename, date, date_accuracy=0.01):
             drift = d[j1,1] + (d[j2,1] - d[j1,1]) / (d[j2,0] - d[j1,0]) * (date - d[j1,0])
         else:
             drift = 0
-
+        return drift
