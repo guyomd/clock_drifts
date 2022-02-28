@@ -398,10 +398,6 @@ def get_drift(filename, date, date_accuracy=0.01, interp=True):
         if len(j)>0:
             drift = float(d[j,1])
             std = float(d[j,2])
-        elif (not interp) and (d[0,0] < date):
-            j = np.where( d[:,0] <= date )[0][-1]
-            drift = float(d[j,1])
-            std = float(d[j,2])
         elif interp and ((d[0,0] < date) and (d[-1,0] > date)):
             j1 = np.where( d[:,0] <= date )[0][-1]
             j2 = np.where( d[:,0] > date )[0][0]
