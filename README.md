@@ -5,4 +5,4 @@ Input data consists of:
 - differential P and S arrival times for each pair of earthquakes located in the same cluster, and
 - a constant Vp/Vs value, which should hold for the whole cluster area, in particular at depth.
 
-More details can be found in ...
+More details can be found in Daniel & Arroucau, 2022 (submitted to BSSA)
