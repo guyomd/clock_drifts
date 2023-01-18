@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import os
 
-_QUASI_ZERO = 1E-6  
+#_QUASI_ZERO = 1E-6  
+_QUASI_ZERO = 1E-12  # Modified on Jan 18, 2023 for the revision of the article. Aim: remove dependency on picking errors for reference stations
 
 class DataManager(object):
     def __init__(self, filename, datatype, eventfile=None, min_sta_per_evt=0, min_sta_per_pair=0, verbose=False):
@@ -250,12 +251,12 @@ def _pickings2delays(df):
                     j2 = indexes2[j2]
                     # Check if pickings are available:
                     p_arr = [
-                        np.bool(df.loc[j1, 'tP'] != 0.0),
-                        np.bool(df.loc[j2, 'tP'] != 0.0),
+                        np.bool_(df.loc[j1, 'tP'] != 0.0),
+                        np.bool_(df.loc[j2, 'tP'] != 0.0),
                     ]
                     s_arr = [
-                        np.bool(df.loc[j1, 'tS'] != 0.0),
-                        np.bool(df.loc[j2, 'tS'] != 0.0)
+                        np.bool_(df.loc[j1, 'tS'] != 0.0),
+                        np.bool_(df.loc[j2, 'tS'] != 0.0)
                     ]
                     if np.all(p_arr) or np.all(s_arr):
                         delays['evt1'].append(name1)
